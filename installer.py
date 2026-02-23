@@ -23,6 +23,7 @@ except ImportError:
 __version__ = "1.0.0"
 
 MCP_REPO = "https://github.com/Jasuni69/mcp-installer"
+MCP_REPO_ZIP = "https://github.com/Jasuni69/mcp-installer/archive/refs/heads/main.zip"
 INSTALLER_REPO_API = "https://api.github.com/repos/Jasuni69/mcp-installer/releases/latest"
 DEFAULT_INSTALL_DIR = str(Path.home() / ".mcp-servers")
 
@@ -89,7 +90,7 @@ def check_prereqs() -> dict:
         except Exception:
             results["uv"] = (True, uv)
     else:
-        results["uv"] = (False, "Not found — install from https://docs.astral.sh/uv/")
+        results["uv"] = (False, "Not found")
 
     # git
     git = find_executable("git")
@@ -100,7 +101,7 @@ def check_prereqs() -> dict:
         except Exception:
             results["git"] = (True, git)
     else:
-        results["git"] = (False, "Not found — install from https://git-scm.com/")
+        results["git"] = (False, "Not found")
 
     # Azure CLI
     az = find_executable("az") or find_executable("az.cmd")
@@ -370,12 +371,12 @@ class InstallerApp(tk.Tk):
 
     # Maps prereq key -> (winget_id_or_None, fallback_url)
     PREREQ_FIXES = {
-        "uv":         ("astral-sh.uv",                      "https://docs.astral.sh/uv/getting-started/installation/"),
-        "git":        ("Git.Git",                            "https://git-scm.com/download/win"),
-        "azure_cli":  ("Microsoft.AzureCLI",                "https://aka.ms/installazurecliwindows"),
-        "azure_auth": (None,                                 None),   # handled separately
-        "dotnet9":    ("Microsoft.DotNet.Runtime.9",        "https://aka.ms/dotnet/download"),
-        "odbc_driver":(None,                                 "https://aka.ms/odbc18"),
+        "uv":         ("astral-sh.uv",               "https://docs.astral.sh/uv/getting-started/installation/"),
+        "git":        ("Git.Git",                    "https://git-scm.com/download/win"),
+        "azure_cli":  ("Microsoft.AzureCLI",         "https://aka.ms/installazurecliwindows"),
+        "azure_auth": (None,                          None),   # handled separately
+        "dotnet9":    ("Microsoft.DotNet.Runtime.9", "https://aka.ms/dotnet/download"),
+        "odbc_driver":(None,                          "https://aka.ms/odbc18"),
     }
 
     def _refresh_prereqs(self):
