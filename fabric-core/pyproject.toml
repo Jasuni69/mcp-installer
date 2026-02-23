@@ -1,0 +1,31 @@
+[project]
+name = "ms-fabric-core-tools-mcp"
+version = "0.1.0"
+description = "Microsoft Fabric MCP server exposing core administrative and data tooling"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]",
+    "azure-identity",
+    "azure-storage-file-datalake",
+    "deltalake",
+    "requests",
+    "cachetools",
+    "semantic-link-labs",
+    "azure-storage-blob",
+    "polars",
+    "sqlalchemy",
+    "pyodbc",
+    "tabulate",
+    "fastapi[standard]",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "python-multipart",
+    "fastapi-mcp",
+]
+
+[tool.setuptools]
+packages = ["helpers", "helpers.clients", "helpers.formatters", "helpers.utils"]
+
+[project.scripts]
+mcp = "mcp.cli:app [cli]"

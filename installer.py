@@ -22,7 +22,7 @@ except ImportError:
 
 __version__ = "1.0.0"
 
-MCP_SERVERS_REPO = "https://github.com/Jasuni69/mcp-servers"
+MCP_REPO = "https://github.com/Jasuni69/mcp-installer"
 INSTALLER_REPO_API = "https://api.github.com/repos/Jasuni69/mcp-installer/releases/latest"
 DEFAULT_INSTALL_DIR = str(Path.home() / ".mcp-servers")
 
@@ -443,13 +443,13 @@ class InstallerApp(tk.Tk):
                 self.after(0, lambda: self._log_append(f"> {msg}"))
 
             # Step 1: clone or pull repo
-            progress(step, total_steps, f"Cloning/updating {MCP_SERVERS_REPO}...")
-            repo_dir = install_dir / "mcp-servers"
+            progress(step, total_steps, f"Cloning/updating {MCP_REPO}...")
+            repo_dir = install_dir / "mcp-installer"
             git = find_executable("git") or "git"
             if (repo_dir / ".git").exists():
                 self._run_cmd([git, "-C", str(repo_dir), "pull"], "git pull")
             else:
-                self._run_cmd([git, "clone", MCP_SERVERS_REPO, str(repo_dir)], "git clone")
+                self._run_cmd([git, "clone", MCP_REPO, str(repo_dir)], "git clone")
             step += 1
 
             # Step 2: uv sync for each server

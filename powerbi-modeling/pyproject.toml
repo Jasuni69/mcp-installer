@@ -1,0 +1,19 @@
+[project]
+name = "powerbi-modeling-mcp"
+version = "0.1.0"
+description = "MCP server for Power BI TOM API — metadata and translations via pythonnet"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastmcp>=2.0",
+    "pythonnet>=3.0",
+]
+
+[project.scripts]
+powerbi-modeling-mcp = "powerbi_modeling_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
