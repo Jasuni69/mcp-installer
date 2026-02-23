@@ -74,6 +74,15 @@ def find_executable(name: str) -> str | None:
                 r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
                 r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
             ]
+        if name == "dotnet":
+            extra += [
+                r"C:\Program Files\dotnet\dotnet.exe",
+            ]
+        if name == "git":
+            extra += [
+                r"C:\Program Files\Git\cmd\git.exe",
+                r"C:\Program Files (x86)\Git\cmd\git.exe",
+            ]
     for path in extra:
         if Path(path).exists():
             return path
