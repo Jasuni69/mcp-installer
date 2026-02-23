@@ -222,7 +222,7 @@ class InstallerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"MCP Server Installer  v{__version__}")
-        self.resizable(False, False)
+        self.resizable(True, True)
         self.configure(bg="#1e1e2e")
 
         self._install_dir = tk.StringVar(value=DEFAULT_INSTALL_DIR)
@@ -257,16 +257,22 @@ class InstallerApp(tk.Tk):
         WARN = "#f38ba8"
         OK_COL = "#a6e3a1"
 
+        FONT = ("Segoe UI", 11)
+        FONT_MONO = ("Consolas", 10)
+
         self._style = ttk.Style(self)
         self._style.theme_use("clam")
         self._style.configure("TFrame", background=BG)
-        self._style.configure("TLabel", background=BG, foreground=FG)
-        self._style.configure("TCheckbutton", background=BG, foreground=FG)
-        self._style.configure("TEntry", fieldbackground="#313244", foreground=FG)
-        self._style.configure("TButton", background="#313244", foreground=FG)
-        self._style.configure("Accent.TButton", background=ACCENT, foreground=BG)
-        self._style.configure("TCombobox", fieldbackground="#313244", foreground=FG)
+        self._style.configure("TLabel", background=BG, foreground=FG, font=FONT)
+        self._style.configure("TCheckbutton", background=BG, foreground=FG, font=FONT)
+        self._style.configure("TEntry", fieldbackground="#313244", foreground=FG, font=FONT)
+        self._style.configure("TButton", background="#313244", foreground=FG, font=FONT)
+        self._style.configure("Accent.TButton", background=ACCENT, foreground=BG, font=FONT)
+        self._style.configure("TCombobox", fieldbackground="#313244", foreground=FG, font=FONT)
         self._style.configure("Horizontal.TProgressbar", troughcolor="#313244", background=ACCENT)
+
+        self._font = FONT
+        self._font_mono = FONT_MONO
 
         self._ok_col = OK_COL
         self._warn_col = WARN
@@ -274,8 +280,12 @@ class InstallerApp(tk.Tk):
         self._fg = FG
         self._bg = BG
 
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
         main = ttk.Frame(self, padding=16)
         main.grid(sticky="nsew")
+        main.columnconfigure(1, weight=1)
 
         row = 0
 
@@ -384,9 +394,10 @@ class InstallerApp(tk.Tk):
         row += 1
 
         self._log = scrolledtext.ScrolledText(main, width=60, height=8, state="disabled",
-                                               bg="#181825", fg=FG, font=("Consolas", 9),
+                                               bg="#181825", fg=FG, font=("Consolas", 10),
                                                insertbackground=FG)
-        self._log.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=4)
+        self._log.grid(row=row, column=0, columnspan=3, sticky="nsew", padx=12, pady=4)
+        main.rowconfigure(row, weight=1)
         row += 1
 
         # Buttons
@@ -454,12 +465,12 @@ class InstallerApp(tk.Tk):
 
             # Status label
             tk.Label(self._prereq_frame, text=f"{icon} {label}",
-                     fg=color, bg=self._bg, font=("Consolas", 9),
+                     fg=color, bg=self._bg, font=("Consolas", 10),
                      anchor="w").grid(row=i, column=0, sticky="w")
 
             # Detail text
             tk.Label(self._prereq_frame, text=detail,
-                     fg="#6c7086", bg=self._bg, font=("Consolas", 8),
+                     fg="#6c7086", bg=self._bg, font=("Consolas", 9),
                      anchor="w").grid(row=i, column=1, sticky="w", padx=8)
 
             # Install button for missing prereqs
@@ -468,19 +479,19 @@ class InstallerApp(tk.Tk):
                 if key == "azure_auth":
                     btn = tk.Label(self._prereq_frame, text="[ Sign in ]",
                                    fg=self._accent, bg=self._bg,
-                                   font=("Consolas", 9), cursor="hand2")
+                                   font=("Consolas", 10), cursor="hand2")
                     btn.grid(row=i, column=2, sticky="w", padx=4)
                     btn.bind("<Button-1>", lambda e: self._az_login())
                 elif winget_id:
                     btn = tk.Label(self._prereq_frame, text="[ Install ]",
                                    fg=self._accent, bg=self._bg,
-                                   font=("Consolas", 9), cursor="hand2")
+                                   font=("Consolas", 10), cursor="hand2")
                     btn.grid(row=i, column=2, sticky="w", padx=4)
                     btn.bind("<Button-1>", lambda e, w=winget_id, u=url: self._install_prereq(w, u))
                 elif url:
                     btn = tk.Label(self._prereq_frame, text="[ Download ]",
                                    fg=self._accent, bg=self._bg,
-                                   font=("Consolas", 9), cursor="hand2")
+                                   font=("Consolas", 10), cursor="hand2")
                     btn.grid(row=i, column=2, sticky="w", padx=4)
                     btn.bind("<Button-1>", lambda e, u=url: self._open_url(u))
 
@@ -640,22 +651,26 @@ class InstallerApp(tk.Tk):
                 self.after(0, lambda: self._log_append(f"> {msg}"))
 
             # Step 1: clone or pull repo
-            progress(step, total_steps, f"Cloning/updating {MCP_REPO}...")
             repo_dir = install_dir / "mcp-installer"
             git = find_executable("git") or "git"
             if (repo_dir / ".git").exists():
+                progress(step, total_steps, "Updating repo...")
                 self._run_cmd([git, "-C", str(repo_dir), "pull"], "git pull")
             else:
+                progress(step, total_steps, f"Cloning {MCP_REPO}...")
                 self._run_cmd([git, "clone", MCP_REPO, str(repo_dir)], "git clone")
             step += 1
 
-            # Step 2: uv sync for each server
+            # Step 2: uv sync for each server (skip if .venv already exists)
             uv = find_executable("uv") or "uv"
             for key in selected_servers:
                 srv = SERVERS[key]
                 srv_dir = repo_dir / srv["dir"]
-                progress(step, total_steps, f"uv sync {srv['dir']}...")
-                self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
+                if (srv_dir / ".venv").exists():
+                    progress(step, total_steps, f"{srv['dir']} already synced — skipping")
+                else:
+                    progress(step, total_steps, f"uv sync {srv['dir']}...")
+                    self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
                 step += 1
 
             # Step 3: write configs
