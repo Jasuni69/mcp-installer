@@ -235,6 +235,8 @@ class InstallerApp(tk.Tk):
         self._az_user = tk.StringVar()
         self._az_password = tk.StringVar()
         self._notebook_template = tk.StringVar()
+        self._code_scope = tk.StringVar(value="global")
+        self._project_dir = tk.StringVar()
 
         self._prereqs: dict = {}
         self._installing = False
@@ -242,6 +244,7 @@ class InstallerApp(tk.Tk):
         self._build_ui()
         self._refresh_prereqs()
         self._toggle_azure_sql_fields()
+        self._toggle_code_scope()
         self._update_install_btn()
 
         # Check for update in background
@@ -315,8 +318,27 @@ class InstallerApp(tk.Tk):
                         command=self._update_install_btn).grid(row=row, column=0, columnspan=2, sticky="w", padx=24)
         row += 1
         ttk.Checkbutton(main, text="Claude Code", variable=self._client_code,
-                        command=self._update_install_btn).grid(row=row, column=0, columnspan=2, sticky="w", padx=24)
+                        command=self._on_client_toggle).grid(row=row, column=0, columnspan=2, sticky="w", padx=24)
         row += 1
+
+        # Claude Code scope (global vs project)
+        self._scope_frame = ttk.Frame(main)
+        self._scope_frame.grid(row=row, column=0, columnspan=3, sticky="ew", padx=40)
+        row += 1
+        scope_inner = ttk.Frame(self._scope_frame)
+        scope_inner.pack(fill="x")
+        ttk.Radiobutton(scope_inner, text="Global (all projects)",
+                        variable=self._code_scope, value="global",
+                        command=self._toggle_code_scope).pack(side="left", padx=4)
+        ttk.Radiobutton(scope_inner, text="Project only",
+                        variable=self._code_scope, value="project",
+                        command=self._toggle_code_scope).pack(side="left", padx=4)
+        self._project_picker = ttk.Frame(self._scope_frame)
+        self._project_picker.pack(fill="x", pady=2)
+        ttk.Label(self._project_picker, text="Project folder:").pack(side="left", padx=4)
+        ttk.Entry(self._project_picker, textvariable=self._project_dir, width=30).pack(side="left", padx=4, fill="x", expand=True)
+        ttk.Button(self._project_picker, text="Browse",
+                   command=self._browse_project).pack(side="left", padx=4)
 
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
         row += 1
@@ -408,7 +430,7 @@ class InstallerApp(tk.Tk):
         self._install_btn = ttk.Button(btn_frame, text="Install", style="Accent.TButton",
                                        command=self._on_install)
         self._install_btn.pack(side="right", padx=4)
-        self._update_btn = ttk.Button(btn_frame, text="Update Servers",
+        self._update_btn = ttk.Button(btn_frame, text="Update MCP Tools",
                                        command=self._on_update)
         self._update_btn.pack(side="left", padx=4)
 
@@ -559,6 +581,25 @@ class InstallerApp(tk.Tk):
         if d:
             self._install_dir.set(d)
 
+    def _browse_project(self):
+        d = filedialog.askdirectory(title="Select project folder")
+        if d:
+            self._project_dir.set(d)
+
+    def _toggle_code_scope(self):
+        if self._code_scope.get() == "project":
+            self._project_picker.pack(fill="x", pady=2)
+        else:
+            self._project_picker.pack_forget()
+
+    def _on_client_toggle(self):
+        if self._client_code.get():
+            self._scope_frame.grid()
+        else:
+            self._scope_frame.grid_remove()
+        self._toggle_code_scope()
+        self._update_install_btn()
+
     def _browse_notebook(self):
         f = filedialog.askopenfilename(
             title="Select notebook template",
@@ -616,6 +657,13 @@ class InstallerApp(tk.Tk):
         if self._installing:
             return
 
+        # Validate project dir if project scope selected
+        if (self._client_code.get() and self._code_scope.get() == "project"
+                and not self._project_dir.get().strip()):
+            messagebox.showwarning("Missing fields",
+                "Project scope selected but no project folder chosen.")
+            return
+
         # Validate Azure SQL fields if selected
         if self._server_vars["azure_sql"].get():
             srv = self._az_server.get().strip()
@@ -647,7 +695,7 @@ class InstallerApp(tk.Tk):
         self._installing = True
         self._install_btn.config(state="disabled")
         self._update_btn.config(state="disabled")
-        self._log_append("Updating MCP servers from GitHub...")
+        self._log_append("Updating MCP tools from GitHub...")
         threading.Thread(target=self._run_update, daemon=True).start()
 
     def _run_update(self):
@@ -667,7 +715,7 @@ class InstallerApp(tk.Tk):
                 self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
 
             self.after(0, lambda: self._log_append(""))
-            self.after(0, lambda: self._log_append("✓ Servers updated! Restart Claude Desktop / terminal."))
+            self.after(0, lambda: self._log_append("✓ MCP tools updated! Restart Claude Desktop / terminal."))
         except Exception as e:
             self.after(0, lambda: self._log_append(f"ERROR: {e}"))
             self.after(0, lambda: messagebox.showerror("Update Failed", str(e)))
@@ -864,7 +912,11 @@ class InstallerApp(tk.Tk):
         self.after(0, lambda: self._log_append(f"  Merged into: {config_path}"))
 
     def _write_code_config(self, server_configs: dict):
-        settings_path = Path.home() / ".claude" / "settings.json"
+        if self._code_scope.get() == "project":
+            project = self._project_dir.get().strip()
+            settings_path = Path(project) / ".claude" / "settings.json"
+        else:
+            settings_path = Path.home() / ".claude" / "settings.json"
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         existing = {}
         if settings_path.exists():
