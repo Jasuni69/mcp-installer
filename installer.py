@@ -127,14 +127,26 @@ def check_prereqs() -> dict:
     else:
         results["azure_cli"] = (False, "Not found — install from https://aka.ms/installazurecliwindows")
 
-    # Azure auth
+    # Azure auth + tenant ID
     if az:
         try:
             subprocess.check_output(
                 [az, "account", "get-access-token"],
                 stderr=subprocess.STDOUT, text=True, timeout=10
             )
-            results["azure_auth"] = (True, "Authenticated")
+            # Fetch tenant ID from current account
+            tenant_id = ""
+            try:
+                acct = subprocess.check_output(
+                    [az, "account", "show", "--query", "tenantId", "-o", "tsv"],
+                    stderr=subprocess.STDOUT, text=True, timeout=10
+                ).strip()
+                tenant_id = acct
+            except Exception:
+                pass
+            detail = f"Authenticated — tenant {tenant_id}" if tenant_id else "Authenticated"
+            results["azure_auth"] = (True, detail)
+            results["_tenant_id"] = tenant_id
         except subprocess.CalledProcessError:
             results["azure_auth"] = (False, "Not logged in — run: az login")
         except Exception:
@@ -237,6 +249,7 @@ class InstallerApp(tk.Tk):
         self._notebook_template = tk.StringVar()
         self._code_scope = tk.StringVar(value="global")
         self._project_dir = tk.StringVar()
+        self._az_tenant_id = tk.StringVar()
 
         self._prereqs: dict = {}
         self._installing = False
@@ -303,9 +316,12 @@ class InstallerApp(tk.Tk):
         row += 1
 
         # Install dir
-        ttk.Label(main, text="Install location:").grid(row=row, column=0, sticky="w", **PAD)
+        ttk.Label(main, text="MCP tools folder:").grid(row=row, column=0, sticky="w", **PAD)
         ttk.Entry(main, textvariable=self._install_dir, width=40).grid(row=row, column=1, sticky="ew", **PAD)
         ttk.Button(main, text="Browse", command=self._browse_dir).grid(row=row, column=2, **PAD)
+        row += 1
+        ttk.Label(main, text="MCP tools are stored here permanently — do not delete this folder.",
+                  foreground="#6c7086").grid(row=row, column=1, columnspan=2, sticky="w", padx=12)
         row += 1
 
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
@@ -397,6 +413,24 @@ class InstallerApp(tk.Tk):
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
         row += 1
 
+        # Fabric project setup
+        ttk.Label(main, text="Fabric project:").grid(row=row, column=0, sticky="w", **PAD)
+        self._fabric_project_dir = tk.StringVar()
+        fp_frame = ttk.Frame(main)
+        fp_frame.grid(row=row, column=1, columnspan=2, sticky="ew", **PAD)
+        ttk.Entry(fp_frame, textvariable=self._fabric_project_dir, width=34,
+                  state="readonly").pack(side="left", fill="x", expand=True)
+        ttk.Button(fp_frame, text="Browse", command=self._browse_fabric_project).pack(side="left", padx=4)
+        ttk.Button(fp_frame, text="Clear", command=lambda: self._fabric_project_dir.set("")).pack(side="left", padx=2)
+        row += 1
+        self._fabric_status = ttk.Label(main, text="Optional — auto-detects Fabric items and writes CLAUDE.md to project root.",
+                  foreground="#6c7086")
+        self._fabric_status.grid(row=row, column=1, columnspan=2, sticky="w", padx=12)
+        row += 1
+
+        ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
+        row += 1
+
         # Prerequisites
         prereq_header = ttk.Frame(main)
         prereq_header.grid(row=row, column=0, sticky="nw", **PAD)
@@ -404,6 +438,14 @@ class InstallerApp(tk.Tk):
         ttk.Button(prereq_header, text="↻ Refresh", command=self._refresh_prereqs).pack(side="left", padx=8)
         self._prereq_frame = ttk.Frame(main)
         self._prereq_frame.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
+        row += 1
+
+        # Azure account picker
+        ttk.Label(main, text="Azure account:").grid(row=row, column=0, sticky="w", **PAD)
+        self._az_account_combo = ttk.Combobox(main, state="readonly", width=50)
+        self._az_account_combo.grid(row=row, column=1, columnspan=2, sticky="ew", **PAD)
+        self._az_account_combo.bind("<<ComboboxSelected>>", lambda e: self._on_account_selected())
+        self._az_accounts = []  # list of {user, tenantId, isDefault}
         row += 1
 
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
@@ -414,7 +456,8 @@ class InstallerApp(tk.Tk):
             text="ℹ  If you installed any prerequisite above, close ALL VSCode windows\n"
                  "    and reopen before using Claude Code. VSCode only reads PATH at launch.\n"
                  "    For Claude Desktop: fully quit (system tray) and reopen,\n"
-                 "    then check Settings ▸ Connectors to verify MCP tools are loaded.",
+                 "    then check Settings ▸ Connectors to verify MCP tools are loaded.\n"
+                 "    Azure tokens expire — if MCP tools stop working, run 'az login' again.",
             fg="#89b4fa", bg=BG, font=("Consolas", 9), justify="left", anchor="w")
         note.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=4)
         row += 1
@@ -435,6 +478,9 @@ class InstallerApp(tk.Tk):
         # Buttons
         btn_frame = ttk.Frame(main)
         btn_frame.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=8)
+        self._force_reinstall = tk.BooleanVar(value=False)
+        ttk.Checkbutton(btn_frame, text="Force reinstall",
+                        variable=self._force_reinstall).pack(side="left", padx=4)
         self._cancel_btn = ttk.Button(btn_frame, text="Cancel", command=self._on_cancel)
         self._cancel_btn.pack(side="right", padx=4)
         self._install_btn = ttk.Button(btn_frame, text="Install", style="Accent.TButton",
@@ -480,11 +526,63 @@ class InstallerApp(tk.Tk):
         except Exception:
             pass
 
+    def _load_az_accounts(self):
+        """Fetch cached Azure accounts and populate the dropdown."""
+        az = find_executable("az") or find_executable("az.cmd")
+        if not az:
+            self._az_account_combo.config(values=["(Azure CLI not installed)"])
+            return
+        try:
+            out = subprocess.check_output(
+                [az, "account", "list", "--query",
+                 "[].{name:name, id:id, tenantId:tenantId, user:user.name, isDefault:isDefault}",
+                 "-o", "json"],
+                stderr=subprocess.STDOUT, text=True, timeout=10
+            )
+            accounts = json.loads(out)
+            if not accounts:
+                self._az_account_combo.config(values=["(no accounts — run Sign in)"])
+                return
+            self._az_accounts = accounts
+            display = []
+            default_idx = 0
+            for i, acct in enumerate(accounts):
+                user = acct.get("user", "unknown")
+                tid = acct.get("tenantId", "")
+                marker = " ★" if acct.get("isDefault") else ""
+                display.append(f"{user} — {tid[:8]}...{marker}")
+                if acct.get("isDefault"):
+                    default_idx = i
+            self._az_account_combo.config(values=display)
+            self._az_account_combo.current(default_idx)
+            self._on_account_selected()
+        except Exception:
+            self._az_account_combo.config(values=["(could not list accounts)"])
+
+    def _on_account_selected(self):
+        """Set tenant/subscription ID from selected account and update prereq display."""
+        idx = self._az_account_combo.current()
+        if idx < 0 or idx >= len(self._az_accounts):
+            return
+        acct = self._az_accounts[idx]
+        tid = acct.get("tenantId", "")
+        sid = acct.get("id", "")
+        self._az_tenant_id.set(tid)
+        self._az_subscription_id = sid
+        if hasattr(self, "_auth_detail_label") and tid:
+            self._auth_detail_label.config(text=f"Authenticated — tenant {tid}")
+
     def _refresh_prereqs(self):
         self._refresh_path()
         for widget in self._prereq_frame.winfo_children():
             widget.destroy()
         self._prereqs = check_prereqs()
+        # Auto-populate tenant ID from az account
+        tid = self._prereqs.get("_tenant_id", "")
+        if tid:
+            self._az_tenant_id.set(tid)
+        # Refresh account dropdown
+        self._load_az_accounts()
         labels = {
             "uv":         "uv",
             "git":        "git",
@@ -504,9 +602,12 @@ class InstallerApp(tk.Tk):
                      anchor="w").grid(row=i, column=0, sticky="w")
 
             # Detail text
-            tk.Label(self._prereq_frame, text=detail,
+            detail_lbl = tk.Label(self._prereq_frame, text=detail,
                      fg="#6c7086", bg=self._bg, font=("Consolas", 9),
-                     anchor="w").grid(row=i, column=1, sticky="w", padx=8)
+                     anchor="w")
+            detail_lbl.grid(row=i, column=1, sticky="w", padx=8)
+            if key == "azure_auth":
+                self._auth_detail_label = detail_lbl
 
             # Install button for missing prereqs
             if not ok:
@@ -590,6 +691,98 @@ class InstallerApp(tk.Tk):
         d = filedialog.askdirectory(initialdir=self._install_dir.get())
         if d:
             self._install_dir.set(d)
+
+    FABRIC_ITEM_SUFFIXES = (
+        ".Notebook", ".Lakehouse", ".SemanticModel", ".Report",
+        ".DataPipeline", ".Warehouse", ".SQLEndpoint", ".Eventhouse",
+        ".Environment", ".KQLDatabase", ".MLModel", ".MLExperiment",
+    )
+
+    @staticmethod
+    def _scan_fabric_items(root: Path) -> list[dict]:
+        """Scan for Fabric items by looking for .platform files or item type suffixes."""
+        items = []
+        for p in root.rglob(".platform"):
+            item_dir = p.parent
+            items.append({"name": item_dir.name, "path": str(item_dir)})
+        # Also catch folders with known suffixes (some git exports lack .platform)
+        for p in root.rglob("item.metadata.json"):
+            item_dir = p.parent
+            if not any(i["path"] == str(item_dir) for i in items):
+                items.append({"name": item_dir.name, "path": str(item_dir)})
+        return items
+
+    def _browse_fabric_project(self):
+        d = filedialog.askdirectory(title="Select Fabric project folder")
+        if not d:
+            return
+        self._fabric_project_dir.set(d)
+        # Scan for Fabric signatures
+        found = self._scan_fabric_items(Path(d))
+        if found:
+            types = set()
+            for item in found:
+                for sig in self.FABRIC_ITEM_SUFFIXES:
+                    if item["name"].endswith(sig):
+                        types.add(sig.lstrip("."))
+                        break
+            type_str = ", ".join(sorted(types)) if types else "items found"
+            self._fabric_status.config(
+                text=f"✓ Fabric project detected — {type_str} ({len(found)} items)",
+                foreground=self._ok_col)
+        else:
+            self._fabric_status.config(
+                text="⚠ No Fabric items detected — are you sure this is a Fabric repo?",
+                foreground=self._warn_col)
+
+    def _write_fabric_claude_md(self, project_dir: Path):
+        """Write a CLAUDE.md to a Fabric project root so Claude knows the context."""
+        claude_md = project_dir / "CLAUDE.md"
+        # Scan what item types exist
+        found = self._scan_fabric_items(project_dir)
+        types_found = set()
+        for item in found:
+            for sig in self.FABRIC_ITEM_SUFFIXES:
+                if item["name"].endswith(sig):
+                    types_found.add(sig.lstrip("."))
+                    break
+
+        content = "# Fabric Project\n\n"
+        content += "This is a Microsoft Fabric project synced via Git integration.\n"
+        content += "Do NOT treat files here as local code to run directly.\n\n"
+        content += "## Rules\n\n"
+        content += "- Use **fabric-core MCP tools** for all operations\n"
+        content += "- Always call `set_workspace` before any operation\n"
+        content += "- Discover items before querying — never guess names or schemas\n"
+        content += "- Execute code via `run_notebook_job` or `sql_query` tools, not locally\n"
+        content += "- .platform and item.metadata.json are Fabric system files — do not edit\n"
+        content += "\n"
+        content += "## Item types in this project\n\n"
+        if types_found:
+            for t in sorted(types_found):
+                content += f"- {t}\n"
+        else:
+            content += "- (none detected)\n"
+        content += "\n"
+        content += "## Folder structure\n\n"
+        content += "Each Fabric item is a folder named `ItemName.ItemType/` containing:\n"
+        content += "- `.platform` — item metadata (GUID, type)\n"
+        content += "- `item.metadata.json` — display name, description\n"
+        content += "- `item.config.json` — item-specific config\n"
+        content += "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)\n"
+
+        if claude_md.exists():
+            existing = claude_md.read_text(encoding="utf-8")
+            if "Fabric Project" in existing:
+                claude_md.write_text(content, encoding="utf-8")
+                return "updated"
+            else:
+                with open(claude_md, "a", encoding="utf-8") as f:
+                    f.write("\n" + content)
+                return "appended"
+        else:
+            claude_md.write_text(content, encoding="utf-8")
+            return "created"
 
     def _browse_project(self):
         d = filedialog.askdirectory(title="Select project folder")
@@ -763,14 +956,20 @@ class InstallerApp(tk.Tk):
                 self._run_cmd([git, "clone", MCP_REPO, str(repo_dir)], "git clone")
             step += 1
 
-            # Step 2: uv sync for each server (skip if .venv already exists)
+            # Step 2: uv sync for each server (skip if .venv healthy, unless force)
             uv = find_executable("uv") or "uv"
+            force = self._force_reinstall.get()
             for key in selected_servers:
                 srv = SERVERS[key]
                 srv_dir = repo_dir / srv["dir"]
-                if (srv_dir / ".venv").exists():
+                venv = srv_dir / ".venv"
+                venv_healthy = (venv / "pyvenv.cfg").exists() if venv.exists() else False
+                if venv_healthy and not force:
                     progress(step, total_steps, f"{srv['dir']} already synced — skipping")
                 else:
+                    if force and venv.exists():
+                        progress(step, total_steps, f"Removing old .venv for {srv['dir']}...")
+                        shutil.rmtree(venv, ignore_errors=True)
                     progress(step, total_steps, f"uv sync {srv['dir']}...")
                     self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
                 step += 1
@@ -792,6 +991,13 @@ class InstallerApp(tk.Tk):
                 progress(step, total_steps, "Installing notebook template...")
                 self._install_notebook_template(Path(nb_path))
             step += 1
+
+            # Step 6: Fabric project CLAUDE.md (optional)
+            fp_dir = self._fabric_project_dir.get().strip()
+            if fp_dir and Path(fp_dir).exists():
+                progress(step, total_steps, "Writing Fabric project CLAUDE.md...")
+                result = self._write_fabric_claude_md(Path(fp_dir))
+                self.after(0, lambda r=result: self._log_append(f"  CLAUDE.md {r}: {fp_dir}/CLAUDE.md"))
 
             self.after(0, lambda: self._progress.config(value=100))
             self.after(0, lambda: self._log_append(""))
@@ -856,9 +1062,20 @@ class InstallerApp(tk.Tk):
 
     def _write_configs(self, repo_dir: Path, selected_servers: list[str]):
         uv = find_executable("uv") or "uv"
+        tenant_id = self._az_tenant_id.get().strip()
+
+        # Base env for any server needing Azure auth
+        sub_id = getattr(self, "_az_subscription_id", "")
+        tenant_env = {}
+        if tenant_id:
+            tenant_env["AZURE_TENANT_ID"] = tenant_id
+        if sub_id:
+            tenant_env["AZURE_SUBSCRIPTION_ID"] = sub_id
+
         az_env = {}
         if "azure_sql" in selected_servers:
             az_env = {
+                **tenant_env,
                 "AZURE_SQL_SERVER": self._az_server.get(),
                 "AZURE_SQL_DATABASE": self._az_database.get(),
                 "AZURE_SQL_AUTH": self._az_auth.get(),
@@ -869,10 +1086,13 @@ class InstallerApp(tk.Tk):
 
         server_configs = {}
         if "fabric" in selected_servers:
-            server_configs["fabric-core"] = {
+            cfg = {
                 "command": uv,
                 "args": ["--directory", str(repo_dir / "fabric-core"), "run", "fabric_mcp_stdio.py"],
             }
+            if tenant_env:
+                cfg["env"] = tenant_env
+            server_configs["fabric-core"] = cfg
         if "powerbi" in selected_servers:
             server_configs["powerbi-modeling"] = {
                 "command": uv,
@@ -891,10 +1111,26 @@ class InstallerApp(tk.Tk):
             }
 
         if self._client_desktop.get():
+            if self._is_claude_desktop_running():
+                self.after(0, lambda: self._log_append(
+                    "  ⚠ Claude Desktop is running — config may not take effect.\n"
+                    "    Fully quit Claude Desktop (system tray) and reopen after install."))
             self._write_desktop_config(server_configs)
 
         if self._client_code.get():
             self._write_code_config(server_configs)
+
+    @staticmethod
+    def _is_claude_desktop_running() -> bool:
+        """Check if Claude Desktop process is running."""
+        try:
+            out = subprocess.check_output(
+                ["tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH"],
+                stderr=subprocess.STDOUT, text=True, timeout=5
+            )
+            return "Claude.exe" in out
+        except Exception:
+            return False
 
     def _write_desktop_config(self, server_configs: dict):
         if platform.system() == "Windows":

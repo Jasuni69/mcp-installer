@@ -2,7 +2,7 @@
 name = "powerbi-translation-audit"
 version = "0.1.0"
 description = "MCP server for Power BI translation audit"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "mcp",
 ]

@@ -126,3 +126,44 @@ The installer has a 5-minute timeout per command. If your network is slow or beh
 - Check your internet connection
 - If behind a corporate proxy, configure `git` and `uv` proxy settings
 - Try again — transient network issues are common
+
+### Azure token expired / MCP tools stopped working
+
+Azure CLI tokens expire after a few hours. If MCP tools suddenly stop connecting:
+
+1. Open a terminal and run `az login`
+2. Restart Claude Desktop or your terminal
+
+### Corporate proxy blocking git/uv
+
+If `git clone` or `uv sync` fail with connection errors behind a corporate proxy:
+
+```bash
+git config --global http.proxy http://proxy.company.com:8080
+git config --global https.proxy http://proxy.company.com:8080
+```
+
+For uv, set the environment variable:
+```
+set HTTPS_PROXY=http://proxy.company.com:8080
+```
+
+### Azure SQL: "Cannot open server" / connection refused
+
+Your IP may not be in the Azure SQL firewall allow-list:
+
+1. Go to Azure Portal → your SQL Server → Networking
+2. Add your current IP address (or enable "Allow Azure services")
+3. Save and retry
+
+### winget install fails with "access denied"
+
+Some packages require administrator privileges. Right-click the installer (or terminal) and select **Run as administrator**, then retry.
+
+### Force reinstall (broken .venv)
+
+If `uv sync` failed partway and left a broken environment, check **"Force reinstall"** in the installer before clicking Install. This deletes existing `.venv` folders and re-creates them from scratch.
+
+### Paths with spaces or special characters
+
+The installer handles paths with spaces (e.g. `C:\Users\John Smith\.mcp-servers`). If you encounter issues, try an install location without spaces (e.g. `C:\mcp-servers`).
