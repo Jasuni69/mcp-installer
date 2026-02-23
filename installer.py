@@ -771,10 +771,21 @@ class InstallerApp(tk.Tk):
         content += "- `item.config.json` — item-specific config\n"
         content += "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)\n"
 
+        marker_start = "# Fabric Project"
+        marker_end = "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)\n"
+
         if claude_md.exists():
             existing = claude_md.read_text(encoding="utf-8")
-            if "Fabric Project" in existing:
-                claude_md.write_text(content, encoding="utf-8")
+            if marker_start in existing:
+                # Replace only the Fabric section, preserve everything else
+                import re
+                updated = re.sub(
+                    re.escape(marker_start) + r".*?" + re.escape(marker_end),
+                    content.rstrip("\n"),
+                    existing,
+                    flags=re.DOTALL,
+                )
+                claude_md.write_text(updated, encoding="utf-8")
                 return "updated"
             else:
                 with open(claude_md, "a", encoding="utf-8") as f:
@@ -1161,7 +1172,9 @@ class InstallerApp(tk.Tk):
     def _write_code_config(self, server_configs: dict):
         if self._code_scope.get() == "project":
             project = self._project_dir.get().strip()
-            settings_path = Path(project) / ".claude" / "settings.json"
+            # Use settings.local.json for project scope — paths are machine-specific
+            # and settings.json would get committed to git, breaking for other users
+            settings_path = Path(project) / ".claude" / "settings.local.json"
         else:
             settings_path = Path.home() / ".claude" / "settings.json"
         settings_path.parent.mkdir(parents=True, exist_ok=True)
