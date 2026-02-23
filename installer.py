@@ -22,6 +22,9 @@ except ImportError:
 
 __version__ = "1.0.0"
 
+# Prevent console windows from flashing on Windows when spawning subprocesses
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+
 MCP_REPO = "https://github.com/Jasuni69/mcp-installer"
 MCP_REPO_ZIP = "https://github.com/Jasuni69/mcp-installer/archive/refs/heads/main.zip"
 INSTALLER_REPO_API = "https://api.github.com/repos/Jasuni69/mcp-installer/releases/latest"
@@ -504,12 +507,13 @@ class InstallerApp(tk.Tk):
 
     @staticmethod
     def _refresh_path():
-        """Re-read PATH from Windows registry so newly installed tools are found."""
+        """Merge registry PATH entries into the current process PATH."""
         if platform.system() != "Windows":
             return
         try:
             import winreg
-            parts = []
+            current = set(os.environ.get("PATH", "").split(";"))
+            new_parts = []
             for hive, subkey in [
                 (winreg.HKEY_LOCAL_MACHINE,
                  r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
@@ -518,11 +522,13 @@ class InstallerApp(tk.Tk):
                 try:
                     with winreg.OpenKey(hive, subkey) as key:
                         val, _ = winreg.QueryValueEx(key, "Path")
-                        parts.append(val)
+                        for p in val.split(";"):
+                            if p and p not in current:
+                                new_parts.append(p)
                 except FileNotFoundError:
                     pass
-            if parts:
-                os.environ["PATH"] = ";".join(parts)
+            if new_parts:
+                os.environ["PATH"] = os.environ.get("PATH", "") + ";" + ";".join(new_parts)
         except Exception:
             pass
 
@@ -643,7 +649,8 @@ class InstallerApp(tk.Tk):
                 proc = subprocess.Popen(
                     [winget, "install", "--id", winget_id, "--silent", "--accept-source-agreements",
                      "--accept-package-agreements"],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    creationflags=_CREATION_FLAGS
                 )
                 for line in proc.stdout:
                     line = line.rstrip()
@@ -671,7 +678,8 @@ class InstallerApp(tk.Tk):
             try:
                 proc = subprocess.Popen(
                     [az, "login"],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                    creationflags=_CREATION_FLAGS
                 )
                 for line in proc.stdout:
                     line = line.rstrip()
@@ -772,15 +780,16 @@ class InstallerApp(tk.Tk):
         content += "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)\n"
 
         marker_start = "# Fabric Project"
-        marker_end = "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)\n"
+        marker_end = "- Content files (notebooks: .py cells, semantic models: .tmdl, etc.)"
 
         if claude_md.exists():
             existing = claude_md.read_text(encoding="utf-8")
             if marker_start in existing:
                 # Replace only the Fabric section, preserve everything else
                 import re
+                pattern = re.escape(marker_start) + r".*?" + re.escape(marker_end) + r"\r?\n?"
                 updated = re.sub(
-                    re.escape(marker_start) + r".*?" + re.escape(marker_end),
+                    pattern,
                     content.rstrip("\n"),
                     existing,
                     flags=re.DOTALL,
@@ -936,7 +945,7 @@ class InstallerApp(tk.Tk):
             self.after(0, lambda: messagebox.showerror("Update Failed", str(e)))
         finally:
             self._installing = False
-            self.after(0, lambda: self._install_btn.config(state="normal"))
+            self.after(0, self._update_install_btn)
             self.after(0, lambda: self._update_btn.config(state="normal"))
 
     def _on_cancel(self):
@@ -1051,13 +1060,13 @@ class InstallerApp(tk.Tk):
             self.after(0, lambda: messagebox.showerror("Install Failed", str(e)))
         finally:
             self._installing = False
-            self.after(0, lambda: self._install_btn.config(state="normal"))
+            self.after(0, self._update_install_btn)
 
     def _run_cmd(self, cmd: list, label: str, cwd: str | None = None,
                   timeout: int = 300):
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, cwd=cwd
+            text=True, cwd=cwd, creationflags=_CREATION_FLAGS
         )
         try:
             for line in proc.stdout:
@@ -1235,8 +1244,8 @@ class InstallerApp(tk.Tk):
             # Update the path in case they picked a different file this run
             import re
             updated = re.sub(
-                r"(## Notebook Style\nWhen creating notebooks.*?\n)`[^\n]+`",
-                rf"\1`{dest}`",
+                r"(## Notebook Style\r?\nWhen creating notebooks.*?\r?\n)`[^\r\n]+`",
+                lambda m: m.group(1) + f"`{dest}`",
                 existing_text,
                 flags=re.DOTALL,
             )

@@ -22,9 +22,20 @@ def _get_az_token() -> str:
     return result.stdout.strip()
 
 
+def _require_env(key: str) -> str:
+    val = os.environ.get(key)
+    if not val:
+        raise RuntimeError(
+            f"Required environment variable {key} is not set.\n"
+            f"Set it in your MCP config (claude_desktop_config.json or settings.json) "
+            f"or re-run the MCP installer."
+        )
+    return val
+
+
 def _build_conn_str() -> str:
-    server = os.environ["AZURE_SQL_SERVER"]
-    database = os.environ["AZURE_SQL_DATABASE"]
+    server = _require_env("AZURE_SQL_SERVER")
+    database = _require_env("AZURE_SQL_DATABASE")
     trust_cert = os.environ.get("AZURE_SQL_TRUST_CERT", "no").lower()
     return (
         f"DRIVER={{ODBC Driver 18 for SQL Server}};"
@@ -47,8 +58,8 @@ def get_connection():
             token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
             conn = pyodbc.connect(conn_str, attrs_before={1256: token_struct})
         else:
-            user = os.environ["AZURE_SQL_USER"]
-            password = os.environ["AZURE_SQL_PASSWORD"]
+            user = _require_env("AZURE_SQL_USER")
+            password = _require_env("AZURE_SQL_PASSWORD")
             conn = pyodbc.connect(conn_str + f"UID={user};PWD={password};")
         yield conn
     finally:

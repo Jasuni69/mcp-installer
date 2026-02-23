@@ -14,7 +14,8 @@ Prerequisites (installer checks and tells you what's missing):
 - [uv](https://docs.astral.sh/uv/) — Python package manager (tiny, standalone)
 - [git](https://git-scm.com/)
 - [Azure CLI](https://aka.ms/installazurecliwindows) — for Fabric / Azure SQL
-- ODBC Driver 18 for SQL Server — for Azure SQL only
+- ODBC Driver 17 or 18 for SQL Server — for Azure SQL only
+- [.NET 9.x runtime](https://aka.ms/dotnet/download) — for Power BI Modeling only
 
 ## For developers
 
@@ -35,7 +36,7 @@ python installer.py
 
 ## What it does
 
-1. Clones/updates `mcp-servers` repo to install dir
+1. Clones/updates `mcp-installer` repo to install dir
 2. Runs `uv sync` for each selected server
 3. Writes `claude_desktop_config.json` and/or `~/.claude/settings.json`
 4. Copies agent markdown files to `~/.claude/agents/`
@@ -81,15 +82,18 @@ The installer writes MCP server config (including Azure SQL connection details) 
 | Client | Config file |
 |--------|-------------|
 | Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Claude Code | `~/.claude/settings.json` |
+| Claude Code (global) | `~/.claude/settings.json` |
+| Claude Code (project) | `<project>/.claude/settings.local.json` |
 
 **What's stored:**
 - Azure SQL server name, database name, and auth method
 - If using SQL auth: **username and password in plain text**
 - Azure CLI auth (`az_cli`) does NOT store credentials — it uses your `az login` session token at runtime
 
+**Also stored (if Azure account selected):**
+- Azure tenant ID and subscription ID as environment variables in the server config
+
 **What's NOT stored:**
-- Azure tenant ID — not needed, the Azure CLI and `DefaultAzureCredential` resolve this automatically
 - Fabric/Power BI tokens — fetched at runtime via Azure CLI login
 
 > **Security note:** If you use SQL auth, your password sits in plain text in the config file. Prefer `az_cli` auth when possible. If you must use SQL auth, make sure the config file isn't shared or committed to version control.
