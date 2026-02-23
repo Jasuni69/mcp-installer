@@ -407,7 +407,32 @@ class InstallerApp(tk.Tk):
         "odbc_driver":(None,                          "https://aka.ms/odbc18"),
     }
 
+    @staticmethod
+    def _refresh_path():
+        """Re-read PATH from Windows registry so newly installed tools are found."""
+        if platform.system() != "Windows":
+            return
+        try:
+            import winreg
+            parts = []
+            for hive, subkey in [
+                (winreg.HKEY_LOCAL_MACHINE,
+                 r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+                (winreg.HKEY_CURRENT_USER, r"Environment"),
+            ]:
+                try:
+                    with winreg.OpenKey(hive, subkey) as key:
+                        val, _ = winreg.QueryValueEx(key, "Path")
+                        parts.append(val)
+                except FileNotFoundError:
+                    pass
+            if parts:
+                os.environ["PATH"] = ";".join(parts)
+        except Exception:
+            pass
+
     def _refresh_prereqs(self):
+        self._refresh_path()
         for widget in self._prereq_frame.winfo_children():
             widget.destroy()
         self._prereqs = check_prereqs()
@@ -527,9 +552,9 @@ class InstallerApp(tk.Tk):
 
     def _toggle_azure_sql_fields(self):
         if self._server_vars["azure_sql"].get():
-            self._az_frame.pack_configure() if hasattr(self._az_frame, 'pack_info') else None
-            for w in self._az_frame.winfo_children():
-                w.pack(fill="x") if not w.winfo_ismapped() else None
+            self._az_frame.grid()
+        else:
+            self._az_frame.grid_remove()
         self._toggle_sql_creds()
 
     def _on_server_toggle(self):
