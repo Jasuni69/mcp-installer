@@ -402,12 +402,15 @@ class InstallerApp(tk.Tk):
 
         # Buttons
         btn_frame = ttk.Frame(main)
-        btn_frame.grid(row=row, column=0, columnspan=3, sticky="e", padx=12, pady=8)
+        btn_frame.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=8)
         self._cancel_btn = ttk.Button(btn_frame, text="Cancel", command=self._on_cancel)
         self._cancel_btn.pack(side="right", padx=4)
         self._install_btn = ttk.Button(btn_frame, text="Install", style="Accent.TButton",
                                        command=self._on_install)
         self._install_btn.pack(side="right", padx=4)
+        self._update_btn = ttk.Button(btn_frame, text="Update Servers",
+                                       command=self._on_update)
+        self._update_btn.pack(side="left", padx=4)
 
     # ── PREREQ PANEL ──────────────────────────────────────────────────────────
 
@@ -632,6 +635,46 @@ class InstallerApp(tk.Tk):
         self._install_btn.config(state="disabled")
         self._log_append("Starting installation...")
         threading.Thread(target=self._run_install, daemon=True).start()
+
+    def _on_update(self):
+        if self._installing:
+            return
+        repo_dir = Path(self._install_dir.get()) / "mcp-installer"
+        if not (repo_dir / ".git").exists():
+            messagebox.showwarning("Not installed",
+                "No existing installation found.\n\nRun Install first.")
+            return
+        self._installing = True
+        self._install_btn.config(state="disabled")
+        self._update_btn.config(state="disabled")
+        self._log_append("Updating MCP servers from GitHub...")
+        threading.Thread(target=self._run_update, daemon=True).start()
+
+    def _run_update(self):
+        try:
+            repo_dir = Path(self._install_dir.get()) / "mcp-installer"
+            git = find_executable("git") or "git"
+            uv = find_executable("uv") or "uv"
+
+            self.after(0, lambda: self._log_append("> git pull..."))
+            self._run_cmd([git, "-C", str(repo_dir), "pull"], "git pull")
+
+            selected_servers = [k for k, v in self._server_vars.items() if v.get()]
+            for key in selected_servers:
+                srv = SERVERS[key]
+                srv_dir = repo_dir / srv["dir"]
+                self.after(0, lambda d=srv["dir"]: self._log_append(f"> uv sync {d}..."))
+                self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
+
+            self.after(0, lambda: self._log_append(""))
+            self.after(0, lambda: self._log_append("✓ Servers updated! Restart Claude Desktop / terminal."))
+        except Exception as e:
+            self.after(0, lambda: self._log_append(f"ERROR: {e}"))
+            self.after(0, lambda: messagebox.showerror("Update Failed", str(e)))
+        finally:
+            self._installing = False
+            self.after(0, lambda: self._install_btn.config(state="normal"))
+            self.after(0, lambda: self._update_btn.config(state="normal"))
 
     def _on_cancel(self):
         self.destroy()

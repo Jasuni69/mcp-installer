@@ -74,6 +74,28 @@ Run `claude` in any terminal. If `uv` is not recognized, restart your terminal f
 
 Use `/mcp` inside Claude Code to check which MCP servers are connected.
 
+## Where credentials are stored
+
+The installer writes MCP server config (including Azure SQL connection details) to **plain-text JSON files**:
+
+| Client | Config file |
+|--------|-------------|
+| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Claude Code | `~/.claude/settings.json` |
+
+**What's stored:**
+- Azure SQL server name, database name, and auth method
+- If using SQL auth: **username and password in plain text**
+- Azure CLI auth (`az_cli`) does NOT store credentials — it uses your `az login` session token at runtime
+
+**What's NOT stored:**
+- Azure tenant ID — not needed, the Azure CLI and `DefaultAzureCredential` resolve this automatically
+- Fabric/Power BI tokens — fetched at runtime via Azure CLI login
+
+> **Security note:** If you use SQL auth, your password sits in plain text in the config file. Prefer `az_cli` auth when possible. If you must use SQL auth, make sure the config file isn't shared or committed to version control.
+
+To change credentials later, just rerun the installer with the new values — it skips the heavy steps if already installed.
+
 ## Troubleshooting
 
 ### "uv: command not found" / "'uv' is not recognized"
