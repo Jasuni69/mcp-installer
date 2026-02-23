@@ -409,6 +409,16 @@ class InstallerApp(tk.Tk):
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
         row += 1
 
+        # Persistent info note
+        note = tk.Label(main,
+            text="ℹ  If you installed any prerequisite above, close ALL VSCode windows\n"
+                 "    and reopen before using Claude Code. VSCode only reads PATH at launch.\n"
+                 "    For Claude Desktop: fully quit (system tray) and reopen,\n"
+                 "    then check Settings ▸ Connectors to verify MCP tools are loaded.",
+            fg="#89b4fa", bg=BG, font=("Consolas", 9), justify="left", anchor="w")
+        note.grid(row=row, column=0, columnspan=3, sticky="ew", padx=12, pady=4)
+        row += 1
+
         # Progress
         self._progress = ttk.Progressbar(main, mode="determinate", length=460,
                                          style="Horizontal.TProgressbar")
@@ -687,11 +697,6 @@ class InstallerApp(tk.Tk):
     def _on_update(self):
         if self._installing:
             return
-        repo_dir = Path(self._install_dir.get()) / "mcp-installer"
-        if not (repo_dir / ".git").exists():
-            messagebox.showwarning("Not installed",
-                "No existing installation found.\n\nRun Install first.")
-            return
         self._installing = True
         self._install_btn.config(state="disabled")
         self._update_btn.config(state="disabled")
@@ -700,12 +705,18 @@ class InstallerApp(tk.Tk):
 
     def _run_update(self):
         try:
-            repo_dir = Path(self._install_dir.get()) / "mcp-installer"
+            install_dir = Path(self._install_dir.get())
+            install_dir.mkdir(parents=True, exist_ok=True)
+            repo_dir = install_dir / "mcp-installer"
             git = find_executable("git") or "git"
             uv = find_executable("uv") or "uv"
 
-            self.after(0, lambda: self._log_append("> git pull..."))
-            self._run_cmd([git, "-C", str(repo_dir), "pull"], "git pull")
+            if (repo_dir / ".git").exists():
+                self.after(0, lambda: self._log_append("> git pull..."))
+                self._run_cmd([git, "-C", str(repo_dir), "pull"], "git pull")
+            else:
+                self.after(0, lambda: self._log_append(f"> Cloning {MCP_REPO}..."))
+                self._run_cmd([git, "clone", MCP_REPO, str(repo_dir)], "git clone")
 
             selected_servers = [k for k, v in self._server_vars.items() if v.get()]
             for key in selected_servers:
