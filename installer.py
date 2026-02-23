@@ -222,6 +222,7 @@ class InstallerApp(tk.Tk):
         self._az_auth = tk.StringVar(value="az_cli")
         self._az_user = tk.StringVar()
         self._az_password = tk.StringVar()
+        self._notebook_template = tk.StringVar()
 
         self._prereqs: dict = {}
         self._installing = False
@@ -333,6 +334,21 @@ class InstallerApp(tk.Tk):
         ttk.Entry(self._sql_cred_frame, textvariable=self._az_user, width=35).grid(row=0, column=1, sticky="ew")
         ttk.Label(self._sql_cred_frame, text="Password:").grid(row=1, column=0, sticky="w", padx=4)
         ttk.Entry(self._sql_cred_frame, textvariable=self._az_password, show="*", width=35).grid(row=1, column=1, sticky="ew")
+
+        ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
+        row += 1
+
+        # Notebook template (optional)
+        ttk.Label(main, text="Notebook template:").grid(row=row, column=0, sticky="w", **PAD)
+        ttk.Entry(main, textvariable=self._notebook_template, width=34,
+                  state="readonly").grid(row=row, column=1, sticky="ew", **PAD)
+        nb_btn_frame = ttk.Frame(main)
+        nb_btn_frame.grid(row=row, column=2, **PAD)
+        ttk.Button(nb_btn_frame, text="Browse", command=self._browse_notebook).pack(side="left", padx=2)
+        ttk.Button(nb_btn_frame, text="Clear", command=lambda: self._notebook_template.set("")).pack(side="left", padx=2)
+        ttk.Label(main, text="Optional — Claude uses default notebook style if not set.",
+                  foreground="#6c7086").grid(row=row + 1, column=1, columnspan=2, sticky="w", padx=12)
+        row += 2
 
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
         row += 1
@@ -489,6 +505,14 @@ class InstallerApp(tk.Tk):
         if d:
             self._install_dir.set(d)
 
+    def _browse_notebook(self):
+        f = filedialog.askopenfilename(
+            title="Select notebook template",
+            filetypes=[("Jupyter notebooks", "*.ipynb"), ("All files", "*.*")]
+        )
+        if f:
+            self._notebook_template.set(f)
+
     def _toggle_azure_sql_fields(self):
         if self._server_vars["azure_sql"].get():
             self._az_frame.pack_configure() if hasattr(self._az_frame, 'pack_info') else None
@@ -551,7 +575,7 @@ class InstallerApp(tk.Tk):
             install_dir.mkdir(parents=True, exist_ok=True)
 
             selected_servers = [k for k, v in self._server_vars.items() if v.get()]
-            total_steps = 1 + len(selected_servers) + 2  # clone + uv sync each + config + agents
+            total_steps = 1 + len(selected_servers) + 3  # clone + uv sync each + config + agents + notebook
             step = 0
 
             def progress(n: int, total: int, msg: str):
@@ -587,6 +611,13 @@ class InstallerApp(tk.Tk):
             if self._client_code.get():
                 progress(step, total_steps, "Copying agents to ~/.claude/agents/...")
                 self._copy_agents(repo_dir, selected_servers)
+            step += 1
+
+            # Step 5: notebook template (optional)
+            nb_path = self._notebook_template.get().strip()
+            if nb_path and Path(nb_path).exists():
+                progress(step, total_steps, "Installing notebook template...")
+                self._install_notebook_template(Path(nb_path))
             step += 1
 
             self.after(0, lambda: self._progress.config(value=100))
@@ -715,6 +746,39 @@ class InstallerApp(tk.Tk):
             for md in agents_src.glob("*.md"):
                 shutil.copy2(md, agents_dest / md.name)
                 self.after(0, lambda n=md.name: self._log_append(f"  Copied agent: {n}"))
+
+    def _install_notebook_template(self, src: Path):
+        """Copy notebook template and inject a reference into ~/.claude/CLAUDE.md."""
+        dest_dir = Path.home() / ".claude" / "notebooks"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / src.name
+        shutil.copy2(src, dest)
+        self.after(0, lambda: self._log_append(f"  Copied template: {dest}"))
+
+        # Inject into CLAUDE.md (create if missing, skip if already referenced)
+        claude_md = Path.home() / ".claude" / "CLAUDE.md"
+        marker = "## Notebook Style"
+        entry = (
+            f"\n{marker}\n"
+            f"When creating notebooks, follow the structure and style of this example:\n"
+            f"`{dest}`\n"
+        )
+        existing_text = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
+        if marker not in existing_text:
+            with open(claude_md, "a", encoding="utf-8") as f:
+                f.write(entry)
+            self.after(0, lambda: self._log_append("  Added notebook style guide to ~/.claude/CLAUDE.md"))
+        else:
+            # Update the path in case they picked a different file this run
+            import re
+            updated = re.sub(
+                r"(## Notebook Style\nWhen creating notebooks.*?\n)`[^\n]+`",
+                rf"\1`{dest}`",
+                existing_text,
+                flags=re.DOTALL,
+            )
+            claude_md.write_text(updated, encoding="utf-8")
+            self.after(0, lambda: self._log_append("  Updated notebook style guide in ~/.claude/CLAUDE.md"))
 
 
 if __name__ == "__main__":
