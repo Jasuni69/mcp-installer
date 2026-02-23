@@ -1,15 +1,28 @@
 # PyInstaller spec for MCP Server Installer
 # Build: pyinstaller build.spec
 # Output: dist/MCPInstaller.exe
+# No Python required on end-user machines — Python is bundled inside the exe.
+
+import os
 
 block_cipher = None
+
+icon_path = 'assets/icon.ico' if os.path.exists('assets/icon.ico') else None
 
 a = Analysis(
     ['installer.py'],
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=['requests', 'packaging', 'packaging.version', 'tkinter', 'tkinter.ttk', 'tkinter.scrolledtext'],
+    hiddenimports=[
+        'requests',
+        'packaging',
+        'packaging.version',
+        'tkinter',
+        'tkinter.ttk',
+        'tkinter.scrolledtext',
+        'winreg',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -41,7 +54,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icon.ico' if __import__('os').path.exists('assets/icon.ico') else None,
-    onefile=True,
-    windowed=True,
+    icon=icon_path,
 )
