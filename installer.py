@@ -700,6 +700,7 @@ class InstallerApp(tk.Tk):
         config_path.parent.mkdir(parents=True, exist_ok=True)
         existing = {}
         if config_path.exists():
+            shutil.copy2(config_path, config_path.with_suffix(".json.bak"))
             with open(config_path) as f:
                 try:
                     existing = json.load(f)
@@ -711,13 +712,14 @@ class InstallerApp(tk.Tk):
 
         with open(config_path, "w") as f:
             json.dump(existing, f, indent=2)
-        self.after(0, lambda: self._log_append(f"  Written: {config_path}"))
+        self.after(0, lambda: self._log_append(f"  Merged into: {config_path}"))
 
     def _write_code_config(self, server_configs: dict):
         settings_path = Path.home() / ".claude" / "settings.json"
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         existing = {}
         if settings_path.exists():
+            shutil.copy2(settings_path, settings_path.with_suffix(".json.bak"))
             with open(settings_path) as f:
                 try:
                     existing = json.load(f)
