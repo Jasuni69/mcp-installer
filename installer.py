@@ -68,9 +68,12 @@ def find_executable(name: str) -> str | None:
             str(Path(appdata) / "Programs" / "uv" / f"{name}.exe"),
             str(Path.home() / ".local" / "bin" / f"{name}.exe"),
             str(Path.home() / ".cargo" / "bin" / f"{name}.exe"),
-            r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
-            r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
         ]
+        if name in ("az", "az.cmd"):
+            extra += [
+                r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+                r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+            ]
     for path in extra:
         if Path(path).exists():
             return path
@@ -561,6 +564,22 @@ class InstallerApp(tk.Tk):
     def _on_install(self):
         if self._installing:
             return
+
+        # Validate Azure SQL fields if selected
+        if self._server_vars["azure_sql"].get():
+            srv = self._az_server.get().strip()
+            db = self._az_database.get().strip()
+            if not srv or not db:
+                messagebox.showwarning("Missing fields",
+                    "Azure SQL selected but server and/or database is empty.\n\n"
+                    "Fill in both fields or uncheck Azure SQL.")
+                return
+            if self._az_auth.get() == "sql":
+                if not self._az_user.get().strip() or not self._az_password.get().strip():
+                    messagebox.showwarning("Missing fields",
+                        "SQL auth selected but username and/or password is empty.")
+                    return
+
         self._installing = True
         self._install_btn.config(state="disabled")
         self._log_append("Starting installation...")
@@ -622,11 +641,40 @@ class InstallerApp(tk.Tk):
 
             self.after(0, lambda: self._progress.config(value=100))
             self.after(0, lambda: self._log_append(""))
-            self.after(0, lambda: self._log_append("✓ Done! Restart Claude Desktop / run claude in any dir."))
-            self.after(0, lambda: messagebox.showinfo("Install Complete",
-                "Installation complete!\n\n"
-                "• Restart Claude Desktop to load new servers\n"
-                "• For Claude Code, run 'claude' in any directory"))
+            self.after(0, lambda: self._log_append("✓ Installation complete!"))
+            self.after(0, lambda: self._log_append(""))
+            self.after(0, lambda: self._log_append("─── IMPORTANT: %PATH & Restart Info ───"))
+            self.after(0, lambda: self._log_append(""))
+            self.after(0, lambda: self._log_append("  VSCode / Claude Code:"))
+            self.after(0, lambda: self._log_append("    VSCode snapshots %PATH when it launches."))
+            self.after(0, lambda: self._log_append("    If you just installed uv, git, or Azure CLI,"))
+            self.after(0, lambda: self._log_append("    close ALL VSCode windows, then reopen."))
+            self.after(0, lambda: self._log_append("    Reloading a window is NOT enough — the"))
+            self.after(0, lambda: self._log_append("    PATH snapshot only refreshes on full restart."))
+            self.after(0, lambda: self._log_append(""))
+            self.after(0, lambda: self._log_append("  Claude Desktop:"))
+            self.after(0, lambda: self._log_append("    Fully quit Claude Desktop (check system tray)"))
+            self.after(0, lambda: self._log_append("    and reopen it to load the new MCP servers."))
+            self.after(0, lambda: self._log_append("    Verify: Settings ▸ Connectors — your servers"))
+            self.after(0, lambda: self._log_append("    should appear there once loaded."))
+            self.after(0, lambda: self._log_append(""))
+
+            msg_parts = [
+                "Installation complete!\n",
+                "── %PATH & Restart ──\n",
+                "VSCode snapshots %PATH at launch. If you installed uv, "
+                "git, or Azure CLI during this session, close ALL VSCode "
+                "windows and reopen. Reloading a window is NOT enough.\n",
+                "── Claude Desktop ──\n",
+                "Fully quit Claude Desktop (check the system tray icon) "
+                "and reopen it. Then go to:\n"
+                "  Settings ▸ Connectors\n"
+                "to verify your MCP servers are loaded.\n",
+                "── Claude Code ──\n",
+                "Run 'claude' in any terminal. If 'uv' is not found, "
+                "restart your terminal first to pick up the new PATH.",
+            ]
+            self.after(0, lambda: messagebox.showinfo("Install Complete", "\n".join(msg_parts)))
         except Exception as e:
             self.after(0, lambda: self._log_append(f"ERROR: {e}"))
             self.after(0, lambda: messagebox.showerror("Install Failed", str(e)))
@@ -634,16 +682,21 @@ class InstallerApp(tk.Tk):
             self._installing = False
             self.after(0, lambda: self._install_btn.config(state="normal"))
 
-    def _run_cmd(self, cmd: list, label: str, cwd: str | None = None):
+    def _run_cmd(self, cmd: list, label: str, cwd: str | None = None,
+                  timeout: int = 300):
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=cwd
         )
-        for line in proc.stdout:
-            line = line.rstrip()
-            if line:
-                self.after(0, lambda l=line: self._log_append(f"  {l}"))
-        proc.wait()
+        try:
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    self.after(0, lambda l=line: self._log_append(f"  {l}"))
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise RuntimeError(f"{label} timed out after {timeout}s")
         if proc.returncode != 0:
             raise RuntimeError(f"{label} failed (exit {proc.returncode})")
 
@@ -691,7 +744,8 @@ class InstallerApp(tk.Tk):
 
     def _write_desktop_config(self, server_configs: dict):
         if platform.system() == "Windows":
-            config_path = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.json"
+            appdata = os.environ.get("APPDATA", "") or str(Path.home() / "AppData" / "Roaming")
+            config_path = Path(appdata) / "Claude" / "claude_desktop_config.json"
         elif platform.system() == "Darwin":
             config_path = Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
         else:
