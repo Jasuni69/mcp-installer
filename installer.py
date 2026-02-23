@@ -163,6 +163,28 @@ def check_prereqs() -> dict:
         odbc_detail = "Not found — needed for Azure SQL (download from Microsoft)"
     results["odbc_driver"] = (odbc_ok, odbc_detail)
 
+    # .NET 9.x runtime (required by powerbi-modeling)
+    dotnet_ok = False
+    dotnet_detail = "Not found — needed for Power BI Modeling (https://aka.ms/dotnet/download)"
+    dotnet = find_executable("dotnet")
+    if dotnet:
+        try:
+            out = subprocess.check_output(
+                [dotnet, "--list-runtimes"], stderr=subprocess.STDOUT, text=True, timeout=10
+            )
+            for line in out.splitlines():
+                # Match "Microsoft.NETCore.App 9.x.x" or "Microsoft.WindowsDesktop.App 9.x.x"
+                if ("9." in line and
+                        ("Microsoft.NETCore.App" in line or "Microsoft.WindowsDesktop.App" in line)):
+                    dotnet_ok = True
+                    dotnet_detail = line.strip()
+                    break
+            if not dotnet_ok:
+                dotnet_detail = "No 9.x runtime found — run: winget install Microsoft.DotNet.Runtime.9"
+        except Exception:
+            pass
+    results["dotnet9"] = (dotnet_ok, dotnet_detail)
+
     return results
 
 
@@ -355,7 +377,8 @@ class InstallerApp(tk.Tk):
             "git": "git",
             "azure_cli": "Azure CLI",
             "azure_auth": "Azure authenticated",
-            "odbc_driver": "ODBC Driver 18",
+            "dotnet9": ".NET 9.x runtime (Power BI Modeling)",
+            "odbc_driver": "ODBC Driver 18 (Azure SQL)",
         }
         for i, (key, label) in enumerate(labels.items()):
             ok, detail = self._prereqs.get(key, (False, ""))
