@@ -368,25 +368,118 @@ class InstallerApp(tk.Tk):
 
     # ── PREREQ PANEL ──────────────────────────────────────────────────────────
 
+    # Maps prereq key -> (winget_id_or_None, fallback_url)
+    PREREQ_FIXES = {
+        "uv":         ("astral-sh.uv",                      "https://docs.astral.sh/uv/getting-started/installation/"),
+        "git":        ("Git.Git",                            "https://git-scm.com/download/win"),
+        "azure_cli":  ("Microsoft.AzureCLI",                "https://aka.ms/installazurecliwindows"),
+        "azure_auth": (None,                                 None),   # handled separately
+        "dotnet9":    ("Microsoft.DotNet.Runtime.9",        "https://aka.ms/dotnet/download"),
+        "odbc_driver":(None,                                 "https://aka.ms/odbc18"),
+    }
+
     def _refresh_prereqs(self):
         for widget in self._prereq_frame.winfo_children():
             widget.destroy()
         self._prereqs = check_prereqs()
         labels = {
-            "uv": "uv",
-            "git": "git",
-            "azure_cli": "Azure CLI",
+            "uv":         "uv",
+            "git":        "git",
+            "azure_cli":  "Azure CLI",
             "azure_auth": "Azure authenticated",
-            "dotnet9": ".NET 9.x runtime (Power BI Modeling)",
-            "odbc_driver": "ODBC Driver 18 (Azure SQL)",
+            "dotnet9":    ".NET 9.x (Power BI Modeling)",
+            "odbc_driver":"ODBC Driver 18 (Azure SQL)",
         }
         for i, (key, label) in enumerate(labels.items()):
             ok, detail = self._prereqs.get(key, (False, ""))
             icon = "✓" if ok else "✗"
             color = self._ok_col if ok else self._warn_col
-            tk.Label(self._prereq_frame, text=f"{icon} {label}: {detail}",
+
+            # Status label
+            tk.Label(self._prereq_frame, text=f"{icon} {label}",
                      fg=color, bg=self._bg, font=("Consolas", 9),
                      anchor="w").grid(row=i, column=0, sticky="w")
+
+            # Detail text
+            tk.Label(self._prereq_frame, text=detail,
+                     fg="#6c7086", bg=self._bg, font=("Consolas", 8),
+                     anchor="w").grid(row=i, column=1, sticky="w", padx=8)
+
+            # Install button for missing prereqs
+            if not ok:
+                winget_id, url = self.PREREQ_FIXES.get(key, (None, None))
+                if key == "azure_auth":
+                    btn = tk.Label(self._prereq_frame, text="[ Sign in ]",
+                                   fg=self._accent, bg=self._bg,
+                                   font=("Consolas", 9), cursor="hand2")
+                    btn.grid(row=i, column=2, sticky="w", padx=4)
+                    btn.bind("<Button-1>", lambda e: self._az_login())
+                elif winget_id:
+                    btn = tk.Label(self._prereq_frame, text="[ Install ]",
+                                   fg=self._accent, bg=self._bg,
+                                   font=("Consolas", 9), cursor="hand2")
+                    btn.grid(row=i, column=2, sticky="w", padx=4)
+                    btn.bind("<Button-1>", lambda e, w=winget_id, u=url: self._install_prereq(w, u))
+                elif url:
+                    btn = tk.Label(self._prereq_frame, text="[ Download ]",
+                                   fg=self._accent, bg=self._bg,
+                                   font=("Consolas", 9), cursor="hand2")
+                    btn.grid(row=i, column=2, sticky="w", padx=4)
+                    btn.bind("<Button-1>", lambda e, u=url: self._open_url(u))
+
+    def _install_prereq(self, winget_id: str, fallback_url: str):
+        """Try winget install; fall back to browser if winget not available."""
+        winget = find_executable("winget")
+        if not winget:
+            self._open_url(fallback_url)
+            return
+
+        def _run():
+            try:
+                proc = subprocess.Popen(
+                    [winget, "install", "--id", winget_id, "--silent", "--accept-source-agreements",
+                     "--accept-package-agreements"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                )
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        self.after(0, lambda l=line: self._log_append(f"  {l}"))
+                proc.wait()
+                if proc.returncode == 0:
+                    self.after(0, lambda: self._log_append(f"✓ Installed {winget_id} — re-checking prereqs..."))
+                    self.after(500, self._refresh_prereqs)
+                else:
+                    self.after(0, lambda: self._open_url(fallback_url))
+            except Exception as ex:
+                self.after(0, lambda: self._open_url(fallback_url))
+
+        self._log_append(f"Installing {winget_id} via winget...")
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _az_login(self):
+        """Launch 'az login' in a subprocess (opens browser for auth)."""
+        az = find_executable("az") or find_executable("az.cmd")
+        if not az:
+            return
+
+        def _run():
+            try:
+                proc = subprocess.Popen(
+                    [az, "login"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+                )
+                for line in proc.stdout:
+                    line = line.rstrip()
+                    if line:
+                        self.after(0, lambda l=line: self._log_append(f"  {l}"))
+                proc.wait()
+                self.after(500, self._refresh_prereqs)
+            except Exception:
+                pass
+
+        self._log_append("Opening Azure login in browser...")
+        threading.Thread(target=_run, daemon=True).start()
 
     # ── HELPERS ───────────────────────────────────────────────────────────────
 
