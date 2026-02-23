@@ -366,7 +366,10 @@ class InstallerApp(tk.Tk):
         row += 1
 
         # Prerequisites
-        ttk.Label(main, text="Prerequisites:").grid(row=row, column=0, sticky="nw", **PAD)
+        prereq_header = ttk.Frame(main)
+        prereq_header.grid(row=row, column=0, sticky="nw", **PAD)
+        ttk.Label(prereq_header, text="Prerequisites:").pack(side="left")
+        ttk.Button(prereq_header, text="↻ Refresh", command=self._refresh_prereqs).pack(side="left", padx=8)
         self._prereq_frame = ttk.Frame(main)
         self._prereq_frame.grid(row=row, column=1, columnspan=2, sticky="ew", padx=4, pady=4)
         row += 1
