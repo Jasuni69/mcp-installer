@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # Prevent console windows from flashing on Windows when spawning subprocesses
 _CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
