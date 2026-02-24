@@ -13,7 +13,7 @@ a = Analysis(
     ['installer.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets/icon.ico', 'assets'), ('assets/icon.png', 'assets')],
     hiddenimports=[
         'requests',
         'packaging',

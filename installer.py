@@ -248,6 +248,7 @@ class InstallerApp(tk.Tk):
         self.title(f"MCP Server Installer  v{__version__}")
         self.resizable(True, True)
         self.configure(bg="#1e1e2e")
+        self._set_icon()
 
         self._install_dir = tk.StringVar(value=DEFAULT_INSTALL_DIR)
         self._server_vars = {k: tk.BooleanVar(value=(k != "azure_sql")) for k in SERVERS}
@@ -278,6 +279,31 @@ class InstallerApp(tk.Tk):
 
         # Check for update in background
         threading.Thread(target=self._check_update_bg, daemon=True).start()
+
+    def _set_icon(self):
+        """Set window and taskbar icon. Works for both script and PyInstaller exe."""
+        # Tell Windows this is its own app, not a Python subprocess.
+        # Without this, taskbar shows Python icon instead of ours.
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                    "jasuni69.mcpinstaller"
+                )
+            except Exception:
+                pass
+        try:
+            base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+            ico = base / "assets" / "icon.ico"
+            png = base / "assets" / "icon.png"
+            if ico.exists():
+                self.iconbitmap(default=str(ico))
+            elif png.exists():
+                icon_img = tk.PhotoImage(file=str(png))
+                self.wm_iconphoto(True, icon_img)
+                self._icon_ref = icon_img  # prevent garbage collection
+        except Exception:
+            pass  # icon is cosmetic — don't crash if missing
 
     # ── UI BUILD ───────────────────────────────────────────────────────────────
 
