@@ -2,7 +2,7 @@
 name = "powerbi-modeling-mcp"
 version = "0.1.0"
 description = "MCP server for Power BI TOM API — metadata and translations via pythonnet"
-requires-python = ">=3.12,<3.13"
+requires-python = "==3.12.*"
 dependencies = [
     "fastmcp>=2.0",
     "pythonnet>=3.0",

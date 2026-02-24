@@ -1,4 +1,4 @@
-from tools.workspace import set_workspace, list_workspaces, create_workspace
+from tools.workspace import set_workspace, list_workspaces, create_workspace, update_workspace, delete_workspace
 from tools.warehouse import set_warehouse, list_warehouses, create_warehouse
 from tools.lakehouse import set_lakehouse, list_lakehouses, create_lakehouse, lakehouse_table_maintenance, lakehouse_load_table
 from tools.table import (
@@ -93,7 +93,7 @@ from tools.graph import (
     delete_teams_channel_alias,
     graph_teams_message_alias,
 )
-from tools.sql_endpoint import get_sql_endpoint as get_sql_endpoint_tool
+from tools.sql_endpoint import get_sql_endpoint
 from tools.deployment_pipeline import (
     list_deployment_pipelines,
     create_deployment_pipeline,
@@ -156,6 +156,8 @@ __all__ = [
     "set_workspace",
     "list_workspaces",
     "create_workspace",
+    "update_workspace",
+    "delete_workspace",
     "set_warehouse",
     "list_warehouses",
     "create_warehouse",
@@ -283,5 +285,3 @@ __all__ = [
     "get_spark_job_definition_definition",
     "update_spark_job_definition_definition",
 ]
-
-get_sql_endpoint = get_sql_endpoint_tool

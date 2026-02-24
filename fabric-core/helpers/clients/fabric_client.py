@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import Dict, Any, List, Optional, Tuple, Union
 import base64
 from urllib.parse import quote
-from functools import lru_cache
 import requests
 from azure.identity import DefaultAzureCredential
 from helpers.logging_config import get_logger
@@ -11,7 +10,6 @@ import json
 from uuid import UUID
 
 logger = get_logger(__name__)
-# from  sempy_labs._helper_functions import create_item
 
 
 
@@ -28,9 +26,9 @@ class FabricApiClient:
     def __init__(self, credential=None, config=None):
         self.credential = credential or DefaultAzureCredential()
         self.config = config or FabricApiConfig()
-        # Initialize cached methods
-        self._cached_resolve_workspace = lru_cache(maxsize=128)(self._resolve_workspace)
-        self._cached_resolve_lakehouse = lru_cache(maxsize=128)(self._resolve_lakehouse)
+        # Async-safe caches (store resolved results, not coroutines)
+        self._workspace_cache: dict[str, str] = {}
+        self._lakehouse_cache: dict[tuple[str, str], str] = {}
 
     def _get_headers(self, token_scope: Optional[str] = None) -> Dict[str, str]:
         """Get headers for Fabric API calls"""
@@ -406,7 +404,11 @@ class FabricApiClient:
 
     async def resolve_workspace(self, workspace: str) -> str:
         """Convert workspace name or ID to workspace ID with caching"""
-        return await self._cached_resolve_workspace(workspace)
+        if workspace in self._workspace_cache:
+            return self._workspace_cache[workspace]
+        result = await self._resolve_workspace(workspace)
+        self._workspace_cache[workspace] = result
+        return result
 
     async def _resolve_workspace(self, workspace: str) -> str:
         """Internal method to convert workspace name or ID to workspace ID"""
@@ -427,7 +429,12 @@ class FabricApiClient:
 
     async def resolve_lakehouse(self, workspace_id: str, lakehouse: str) -> str:
         """Convert lakehouse name or ID to lakehouse ID with caching"""
-        return await self._cached_resolve_lakehouse(workspace_id, lakehouse)
+        key = (workspace_id, lakehouse)
+        if key in self._lakehouse_cache:
+            return self._lakehouse_cache[key]
+        result = await self._resolve_lakehouse(workspace_id, lakehouse)
+        self._lakehouse_cache[key] = result
+        return result
 
     async def _resolve_lakehouse(self, workspace_id: str, lakehouse: str) -> str:
         """Internal method to convert lakehouse name or ID to lakehouse ID"""

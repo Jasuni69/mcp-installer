@@ -2,15 +2,11 @@ from azure.identity import DefaultAzureCredential
 from cachetools import TTLCache
 
 
-def get_azure_credentials(client_id: str, cache: TTLCache) -> DefaultAzureCredential:
+def get_azure_credentials(session_id: str, cache: TTLCache) -> DefaultAzureCredential:
     """
-    Get Azure credentials using DefaultAzureCredential.
-    This function is used to authenticate with Azure services.
+    Get or create cached Azure credentials keyed by MCP session ID.
     """
-    if f"{client_id}_creds" in cache:
-        return cache[f"{client_id}_creds"]
-    # If credentials are not cached, create a new DefaultAzureCredential instance
-    # and store it in the cache.
-    else:
-        cache[f"{client_id}_creds"] = DefaultAzureCredential()
-        return cache[f"{client_id}_creds"]
+    key = f"{session_id}_creds"
+    if key not in cache:
+        cache[key] = DefaultAzureCredential()
+    return cache[key]

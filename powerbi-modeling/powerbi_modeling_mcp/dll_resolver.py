@@ -19,12 +19,13 @@ def _search_paths() -> list[Path]:
     """Return candidate directories that might contain TOM DLLs."""
     paths = [_LIB_DIR]
 
-    # NuGet global cache
+    # NuGet global cache — search across all target framework monikers
     nuget_cache = Path.home() / ".nuget" / "packages"
     if nuget_cache.exists():
         for pkg_dir in nuget_cache.glob("microsoft.analysisservices*"):
-            for dll_dir in pkg_dir.rglob("net45"):
-                paths.append(dll_dir)
+            for tfm in ("net45", "net6.0", "net8.0", "netstandard2.0"):
+                for dll_dir in pkg_dir.rglob(tfm):
+                    paths.append(dll_dir)
 
     # SSMS / common install locations
     program_files = os.environ.get("ProgramFiles", r"C:\Program Files")

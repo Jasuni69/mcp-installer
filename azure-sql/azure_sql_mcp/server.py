@@ -14,6 +14,20 @@ from mcp.server.stdio import stdio_server
 logger = logging.getLogger(__name__)
 
 
+def _quote_identifier(name: str) -> str:
+    """Escape ] by doubling it, then bracket-wrap for safe SQL identifier quoting."""
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _pick_odbc_driver() -> str:
+    """Return the best available ODBC driver for SQL Server."""
+    available = pyodbc.drivers()
+    for d in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
+        if d in available:
+            return d
+    raise RuntimeError("No ODBC Driver 17 or 18 for SQL Server found. Install one first.")
+
+
 def _get_az_token() -> str:
     result = subprocess.run(
         ["az", "account", "get-access-token", "--resource", "https://database.windows.net", "--query", "accessToken", "-o", "tsv"],
@@ -37,8 +51,9 @@ def _build_conn_str() -> str:
     server = _require_env("AZURE_SQL_SERVER")
     database = _require_env("AZURE_SQL_DATABASE")
     trust_cert = os.environ.get("AZURE_SQL_TRUST_CERT", "no").lower()
+    driver = _pick_odbc_driver()
     return (
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+        f"DRIVER={{{driver}}};"
         f"SERVER={server};"
         f"DATABASE={database};"
         f"Encrypt=yes;"
@@ -48,7 +63,7 @@ def _build_conn_str() -> str:
 
 @contextmanager
 def get_connection():
-    auth = os.environ.get("AZURE_SQL_AUTH", "sql").lower()
+    auth = os.environ.get("AZURE_SQL_AUTH", "az_cli").lower()
     conn_str = _build_conn_str()
     conn = None
     try:
@@ -116,7 +131,7 @@ async def read_resource(uri: types.AnyUrl) -> str:
     schema, table = parts
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(f"SELECT TOP 100 * FROM [{schema}].[{table}]")
+        cursor.execute(f"SELECT TOP 100 * FROM {_quote_identifier(schema)}.{_quote_identifier(table)}")
         return _rows_to_text(cursor)
 
 
@@ -165,7 +180,7 @@ async def list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="execute_query",
-            description="Execute a SQL query against the database",
+            description="Execute a SQL query against the database. WARNING: This can execute any SQL including INSERT, UPDATE, DELETE, DROP.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -238,7 +253,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             schema = arguments["schema"]
             table = arguments["table"]
             n = min(int(arguments.get("rows", 50)), 500)
-            cursor.execute(f"SELECT TOP {n} * FROM [{schema}].[{table}]")
+            cursor.execute(f"SELECT TOP {n} * FROM {_quote_identifier(schema)}.{_quote_identifier(table)}")
             output = _rows_to_text(cursor)
 
         elif name == "execute_query":

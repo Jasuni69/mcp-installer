@@ -9,4 +9,10 @@ mcp.settings.log_level = "error"
 
 # Shared cache and context
 __ctx_cache = TTLCache(maxsize=100, ttl=300)  # Cache for 5 minutes
-ctx = mcp.get_context()
+
+
+@mcp.tool()
+async def clear_context() -> str:
+    """Clear the current session context."""
+    __ctx_cache.clear()
+    return "Context cleared."

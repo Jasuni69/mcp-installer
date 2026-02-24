@@ -1,23 +1,12 @@
 from tools import *
 from helpers.logging_config import get_logger
-from helpers.utils.context import mcp, __ctx_cache
+from helpers.utils.context import mcp, __ctx_cache, clear_context  # noqa: F401
 import logging
 
 
 
 logger = get_logger(__name__)
 logger.level = logging.ERROR
-
-
-@mcp.tool()
-async def clear_context() -> str:
-    """Clear the current session context.
-
-    Returns:
-        A string confirming the context has been cleared.
-    """
-    __ctx_cache.clear()
-    return "Context cleared."
 
 
 if __name__ == "__main__":
