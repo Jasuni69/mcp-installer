@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Prevent console windows from flashing on Windows when spawning subprocesses
 _CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
@@ -999,7 +999,7 @@ class InstallerApp(tk.Tk):
                 srv = SERVERS[key]
                 srv_dir = repo_dir / srv["dir"]
                 self.after(0, lambda d=srv["dir"]: self._log_append(f"> uv sync {d}..."))
-                self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
+                self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir), timeout=900)
 
             self.after(0, lambda: self._log_append(""))
             self.after(0, lambda: self._log_append("✓ MCP tools updated! Restart Claude Desktop / terminal."))
@@ -1020,7 +1020,7 @@ class InstallerApp(tk.Tk):
             install_dir.mkdir(parents=True, exist_ok=True)
 
             selected_servers = [k for k, v in self._server_vars.items() if v.get()]
-            total_steps = 1 + len(selected_servers) + 5  # clone + uv sync each + config + agents + notebook + glossary + fabric CLAUDE.md
+            total_steps = 1 + len(selected_servers) + 7  # clone + uv sync each + config + agents + skills + CLAUDE.md template + notebook + glossary + fabric CLAUDE.md
             step = 0
 
             def progress(n: int, total: int, msg: str):
@@ -1050,11 +1050,11 @@ class InstallerApp(tk.Tk):
                 if venv_healthy and not force:
                     progress(step, total_steps, f"{srv['dir']} already synced — skipping")
                 else:
-                    if force and venv.exists():
-                        progress(step, total_steps, f"Removing old .venv for {srv['dir']}...")
-                        shutil.rmtree(venv, ignore_errors=True)
+                    sync_cmd = [uv, "sync"]
+                    if force:
+                        sync_cmd.append("--reinstall")
                     progress(step, total_steps, f"uv sync {srv['dir']}...")
-                    self._run_cmd([uv, "sync"], f"uv sync {srv['dir']}", cwd=str(srv_dir))
+                    self._run_cmd(sync_cmd, f"uv sync {srv['dir']}", cwd=str(srv_dir), timeout=900)
                 step += 1
 
             # Step 3: write configs
@@ -1064,18 +1064,30 @@ class InstallerApp(tk.Tk):
 
             # Step 4: copy agents if Claude Code selected
             if self._client_code.get():
-                progress(step, total_steps, "Copying agents to ~/.claude/agents/...")
+                progress(step, total_steps, "Copying agents...")
                 self._copy_agents(repo_dir, selected_servers)
             step += 1
 
-            # Step 5: notebook template (optional)
+            # Step 5: copy skills if Claude Code selected
+            if self._client_code.get():
+                progress(step, total_steps, "Copying skills...")
+                self._copy_skills(repo_dir)
+            step += 1
+
+            # Step 6: copy CLAUDE.md template (project scope only)
+            if self._client_code.get() and self._code_scope.get() == "project":
+                progress(step, total_steps, "Copying CLAUDE.md template...")
+                self._copy_claude_md_template(repo_dir)
+            step += 1
+
+            # Step 7: notebook template (optional)
             nb_path = self._notebook_template.get().strip()
             if nb_path and Path(nb_path).exists():
                 progress(step, total_steps, "Installing notebook template...")
                 self._install_notebook_template(Path(nb_path))
             step += 1
 
-            # Step 6: glossary files (optional)
+            # Step 8: glossary files (optional)
             if self._glossary_files:
                 glossary_paths = [Path(f) for f in self._glossary_files if Path(f).exists()]
                 if glossary_paths:
@@ -1083,7 +1095,7 @@ class InstallerApp(tk.Tk):
                     self._install_glossary(glossary_paths)
             step += 1
 
-            # Step 7: Fabric project CLAUDE.md (optional)
+            # Step 9: Fabric project CLAUDE.md (optional)
             fp_dir = self._fabric_project_dir.get().strip()
             if fp_dir and Path(fp_dir).exists():
                 progress(step, total_steps, "Writing Fabric project CLAUDE.md...")
@@ -1253,31 +1265,44 @@ class InstallerApp(tk.Tk):
 
     def _write_code_config(self, server_configs: dict):
         if self._code_scope.get() == "project":
-            project = self._project_dir.get().strip()
-            # Use settings.local.json for project scope — paths are machine-specific
-            # and settings.json would get committed to git, breaking for other users
-            settings_path = Path(project) / ".claude" / "settings.local.json"
+            project = Path(self._project_dir.get().strip())
+            # MCP server definitions go in .mcp.json at project root
+            mcp_path = project / ".mcp.json"
+            existing_mcp = {}
+            if mcp_path.exists():
+                shutil.copy2(mcp_path, mcp_path.with_suffix(".json.bak"))
+                with open(mcp_path) as f:
+                    try:
+                        existing_mcp = json.load(f)
+                    except json.JSONDecodeError:
+                        existing_mcp = {}
+            existing_mcp.setdefault("mcpServers", {})
+            existing_mcp["mcpServers"].update(server_configs)
+            with open(mcp_path, "w") as f:
+                json.dump(existing_mcp, f, indent=2)
+            self.after(0, lambda: self._log_append(f"  Written: {mcp_path}"))
         else:
             settings_path = Path.home() / ".claude" / "settings.json"
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = {}
-        if settings_path.exists():
-            shutil.copy2(settings_path, settings_path.with_suffix(".json.bak"))
-            with open(settings_path) as f:
-                try:
-                    existing = json.load(f)
-                except json.JSONDecodeError:
-                    existing = {}
-
-        existing.setdefault("mcpServers", {})
-        existing["mcpServers"].update(server_configs)
-
-        with open(settings_path, "w") as f:
-            json.dump(existing, f, indent=2)
-        self.after(0, lambda: self._log_append(f"  Written: {settings_path}"))
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            existing = {}
+            if settings_path.exists():
+                shutil.copy2(settings_path, settings_path.with_suffix(".json.bak"))
+                with open(settings_path) as f:
+                    try:
+                        existing = json.load(f)
+                    except json.JSONDecodeError:
+                        existing = {}
+            existing.setdefault("mcpServers", {})
+            existing["mcpServers"].update(server_configs)
+            with open(settings_path, "w") as f:
+                json.dump(existing, f, indent=2)
+            self.after(0, lambda: self._log_append(f"  Written: {settings_path}"))
 
     def _copy_agents(self, repo_dir: Path, selected_servers: list[str]):
-        agents_dest = Path.home() / ".claude" / "agents"
+        if self._client_code.get() and self._code_scope.get() == "project":
+            agents_dest = Path(self._project_dir.get().strip()) / ".claude" / "agents"
+        else:
+            agents_dest = Path.home() / ".claude" / "agents"
         agents_dest.mkdir(parents=True, exist_ok=True)
 
         if any(k in selected_servers for k in ("fabric", "powerbi", "translation")):
@@ -1292,9 +1317,40 @@ class InstallerApp(tk.Tk):
                 shutil.copy2(md, agents_dest / md.name)
                 self.after(0, lambda n=md.name: self._log_append(f"  Copied agent: {n}"))
 
+    def _copy_skills(self, repo_dir: Path):
+        """Copy skills from repo to target .claude/skills/fabric-toolkit/."""
+        skills_src = repo_dir / "skills" / "fabric-toolkit"
+        if not skills_src.exists():
+            return
+        if self._client_code.get() and self._code_scope.get() == "project":
+            skills_dest = Path(self._project_dir.get().strip()) / ".claude" / "skills" / "fabric-toolkit"
+        else:
+            skills_dest = Path.home() / ".claude" / "skills" / "fabric-toolkit"
+        skills_dest.mkdir(parents=True, exist_ok=True)
+        for md in skills_src.glob("*.md"):
+            shutil.copy2(md, skills_dest / md.name)
+            self.after(0, lambda n=md.name: self._log_append(f"  Copied skill: {n}"))
+
+    def _copy_claude_md_template(self, repo_dir: Path):
+        """Copy templates/CLAUDE.md to project root (project scope only). Skip if exists."""
+        template_src = repo_dir / "templates" / "CLAUDE.md"
+        if not template_src.exists():
+            return
+        project_dir = Path(self._project_dir.get().strip())
+        claude_md_dest = project_dir / "CLAUDE.md"
+        if claude_md_dest.exists():
+            self.after(0, lambda: self._log_append("  CLAUDE.md already exists — skipping"))
+            return
+        shutil.copy2(template_src, claude_md_dest)
+        self.after(0, lambda: self._log_append(f"  Copied CLAUDE.md template to {claude_md_dest}"))
+
     def _install_glossary(self, files: list[Path]):
-        """Copy glossary files and inject a reference into ~/.claude/CLAUDE.md."""
-        dest_dir = Path.home() / ".claude" / "glossary"
+        """Copy glossary files and inject a reference into CLAUDE.md."""
+        if self._client_code.get() and self._code_scope.get() == "project":
+            base_dir = Path(self._project_dir.get().strip()) / ".claude"
+        else:
+            base_dir = Path.home() / ".claude"
+        dest_dir = base_dir / "glossary"
         dest_dir.mkdir(parents=True, exist_ok=True)
         for src in files:
             dest = dest_dir / src.name
@@ -1302,11 +1358,16 @@ class InstallerApp(tk.Tk):
             self.after(0, lambda n=src.name: self._log_append(f"  Copied glossary: {n}"))
 
         # Inject into CLAUDE.md (create if missing, skip if already present)
-        claude_md = Path.home() / ".claude" / "CLAUDE.md"
+        if self._client_code.get() and self._code_scope.get() == "project":
+            claude_md = Path(self._project_dir.get().strip()) / "CLAUDE.md"
+            glossary_ref = f"`{dest_dir}`"
+        else:
+            claude_md = Path.home() / ".claude" / "CLAUDE.md"
+            glossary_ref = "`~/.claude/glossary/`"
         marker = "## Translation Glossary"
         entry = (
             f"\n{marker}\n"
-            f"When translating Power BI reports, check `~/.claude/glossary/` for company-specific term dictionaries.\n"
+            f"When translating Power BI reports, check {glossary_ref} for company-specific term dictionaries.\n"
             f"If glossary files exist, use them as the authoritative source for terminology.\n"
             f"If no glossary files exist, use your best judgment for translations.\n"
         )
@@ -1314,20 +1375,27 @@ class InstallerApp(tk.Tk):
         if marker not in existing_text:
             with open(claude_md, "a", encoding="utf-8") as f:
                 f.write(entry)
-            self.after(0, lambda: self._log_append("  Added glossary reference to ~/.claude/CLAUDE.md"))
+            self.after(0, lambda: self._log_append(f"  Added glossary reference to {claude_md}"))
         else:
-            self.after(0, lambda: self._log_append("  Glossary reference already in ~/.claude/CLAUDE.md"))
+            self.after(0, lambda: self._log_append(f"  Glossary reference already in {claude_md}"))
 
     def _install_notebook_template(self, src: Path):
-        """Copy notebook template and inject a reference into ~/.claude/CLAUDE.md."""
-        dest_dir = Path.home() / ".claude" / "notebooks"
+        """Copy notebook template and inject a reference into CLAUDE.md."""
+        if self._client_code.get() and self._code_scope.get() == "project":
+            base_dir = Path(self._project_dir.get().strip()) / ".claude"
+        else:
+            base_dir = Path.home() / ".claude"
+        dest_dir = base_dir / "notebooks"
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / src.name
         shutil.copy2(src, dest)
         self.after(0, lambda: self._log_append(f"  Copied template: {dest}"))
 
         # Inject into CLAUDE.md (create if missing, skip if already referenced)
-        claude_md = Path.home() / ".claude" / "CLAUDE.md"
+        if self._client_code.get() and self._code_scope.get() == "project":
+            claude_md = Path(self._project_dir.get().strip()) / "CLAUDE.md"
+        else:
+            claude_md = Path.home() / ".claude" / "CLAUDE.md"
         marker = "## Notebook Style"
         entry = (
             f"\n{marker}\n"
@@ -1338,7 +1406,7 @@ class InstallerApp(tk.Tk):
         if marker not in existing_text:
             with open(claude_md, "a", encoding="utf-8") as f:
                 f.write(entry)
-            self.after(0, lambda: self._log_append("  Added notebook style guide to ~/.claude/CLAUDE.md"))
+            self.after(0, lambda: self._log_append(f"  Added notebook style guide to {claude_md}"))
         else:
             # Update the path in case they picked a different file this run
             import re
@@ -1349,7 +1417,7 @@ class InstallerApp(tk.Tk):
                 flags=re.DOTALL,
             )
             claude_md.write_text(updated, encoding="utf-8")
-            self.after(0, lambda: self._log_append("  Updated notebook style guide in ~/.claude/CLAUDE.md"))
+            self.after(0, lambda: self._log_append(f"  Updated notebook style guide in {claude_md}"))
 
 
 if __name__ == "__main__":
