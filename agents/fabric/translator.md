@@ -36,6 +36,7 @@ Edit .pbip JSON files on disk:
 - **Run scripts in order:** `pbip_translate_display_names.py` THEN `pbip_fix_visual_titles.py`.
 - **After editing .pbip JSON**, user must close and reopen Power BI Desktop to see changes.
 - **Script repetitive edits.** If more than 5 manual edits of the same type, write a script with `--dry-run` mode.
+- **Check glossary first.** If `~/.claude/glossary/` contains JSON files, load and prefer those terms over your own choices. Glossary format is simple `{"English term": "Translated term"}` key-value pairs.
 
 ## Key Files
 
@@ -45,6 +46,7 @@ Edit .pbip JSON files on disk:
 | `pbip_translate_display_names.py` | Phase 10.3 — bulk displayName injection |
 | `pbip_fix_visual_titles.py` | Phase 10.4 — fix visual titles + slicer headers |
 | `translation_map_sv-SE.json` | Swedish dictionary — extend with project-specific terms |
+| `~/.claude/glossary/*.json` | Company-specific glossary — preferred terms override defaults |
 
 ## Tools
 

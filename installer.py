@@ -192,25 +192,34 @@ def check_prereqs() -> dict:
     results["odbc_driver"] = (odbc_ok, odbc_detail)
 
     # .NET 9.x runtime (required by powerbi-modeling)
+    # Check multiple dotnet locations — user-local may lack 9.x even if system-wide has it
     dotnet_ok = False
     dotnet_detail = "Not found — needed for Power BI Modeling (https://aka.ms/dotnet/download)"
-    dotnet = find_executable("dotnet")
-    if dotnet:
+    dotnet_candidates = []
+    d = find_executable("dotnet")
+    if d:
+        dotnet_candidates.append(d)
+    system_dotnet = r"C:\Program Files\dotnet\dotnet.exe"
+    if Path(system_dotnet).exists() and system_dotnet not in dotnet_candidates:
+        dotnet_candidates.append(system_dotnet)
+
+    for dotnet in dotnet_candidates:
         try:
             out = subprocess.check_output(
                 [dotnet, "--list-runtimes"], stderr=subprocess.STDOUT, text=True, timeout=10
             )
             for line in out.splitlines():
-                # Match "Microsoft.NETCore.App 9.x.x" or "Microsoft.WindowsDesktop.App 9.x.x"
                 if ("9." in line and
                         ("Microsoft.NETCore.App" in line or "Microsoft.WindowsDesktop.App" in line)):
                     dotnet_ok = True
                     dotnet_detail = line.strip()
                     break
-            if not dotnet_ok:
-                dotnet_detail = "No 9.x runtime found — run: winget install Microsoft.DotNet.Runtime.9"
+            if dotnet_ok:
+                break
         except Exception:
             pass
+    if not dotnet_ok and dotnet_candidates:
+        dotnet_detail = "No 9.x runtime found — run: winget install Microsoft.DotNet.Runtime.9"
     results["dotnet9"] = (dotnet_ok, dotnet_detail)
 
     return results
@@ -250,9 +259,12 @@ class InstallerApp(tk.Tk):
         self._az_user = tk.StringVar()
         self._az_password = tk.StringVar()
         self._notebook_template = tk.StringVar()
+        self._glossary_display = tk.StringVar()
+        self._glossary_files: list[str] = []
         self._code_scope = tk.StringVar(value="global")
         self._project_dir = tk.StringVar()
         self._az_tenant_id = tk.StringVar()
+        self._az_subscription_id = ""
 
         self._prereqs: dict = {}
         self._installing = False
@@ -260,6 +272,7 @@ class InstallerApp(tk.Tk):
         self._build_ui()
         self._refresh_prereqs()
         self._toggle_azure_sql_fields()
+        self._toggle_optional_sections()
         self._toggle_code_scope()
         self._update_install_btn()
 
@@ -401,34 +414,51 @@ class InstallerApp(tk.Tk):
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
         row += 1
 
-        # Notebook template (optional)
-        ttk.Label(main, text="Notebook template:").grid(row=row, column=0, sticky="w", **PAD)
-        ttk.Entry(main, textvariable=self._notebook_template, width=34,
-                  state="readonly").grid(row=row, column=1, sticky="ew", **PAD)
-        nb_btn_frame = ttk.Frame(main)
-        nb_btn_frame.grid(row=row, column=2, **PAD)
+        # Notebook template (optional — visible when fabric selected)
+        self._nb_frame = ttk.Frame(main)
+        self._nb_frame.grid(row=row, column=0, columnspan=3, sticky="ew")
+        self._nb_frame.columnconfigure(1, weight=1)
+        ttk.Label(self._nb_frame, text="Notebook template:").grid(row=0, column=0, sticky="w", **PAD)
+        ttk.Entry(self._nb_frame, textvariable=self._notebook_template, width=34,
+                  state="readonly").grid(row=0, column=1, sticky="ew", **PAD)
+        nb_btn_frame = ttk.Frame(self._nb_frame)
+        nb_btn_frame.grid(row=0, column=2, **PAD)
         ttk.Button(nb_btn_frame, text="Browse", command=self._browse_notebook).pack(side="left", padx=2)
         ttk.Button(nb_btn_frame, text="Clear", command=lambda: self._notebook_template.set("")).pack(side="left", padx=2)
-        ttk.Label(main, text="Optional — Claude uses default notebook style if not set.",
-                  foreground="#6c7086").grid(row=row + 1, column=1, columnspan=2, sticky="w", padx=12)
-        row += 2
-
-        ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
+        ttk.Label(self._nb_frame, text="Optional — Claude uses default notebook style if not set.",
+                  foreground="#6c7086").grid(row=1, column=1, columnspan=2, sticky="w", padx=12)
         row += 1
 
-        # Fabric project setup
-        ttk.Label(main, text="Fabric project:").grid(row=row, column=0, sticky="w", **PAD)
+        # Glossary files (optional — visible when translation or powerbi selected)
+        self._gl_frame = ttk.Frame(main)
+        self._gl_frame.grid(row=row, column=0, columnspan=3, sticky="ew")
+        self._gl_frame.columnconfigure(1, weight=1)
+        ttk.Label(self._gl_frame, text="Glossary files:").grid(row=0, column=0, sticky="w", **PAD)
+        ttk.Entry(self._gl_frame, textvariable=self._glossary_display, width=34,
+                  state="readonly").grid(row=0, column=1, sticky="ew", **PAD)
+        gl_btn_frame = ttk.Frame(self._gl_frame)
+        gl_btn_frame.grid(row=0, column=2, **PAD)
+        ttk.Button(gl_btn_frame, text="Browse", command=self._browse_glossary).pack(side="left", padx=2)
+        ttk.Button(gl_btn_frame, text="Clear", command=self._clear_glossary).pack(side="left", padx=2)
+        ttk.Label(self._gl_frame, text="Optional — company-specific translation terms. Claude uses best judgment if none set.",
+                  foreground="#6c7086").grid(row=1, column=1, columnspan=2, sticky="w", padx=12)
+        row += 1
+
+        # Fabric project setup (visible when fabric selected)
+        self._fp_frame = ttk.Frame(main)
+        self._fp_frame.grid(row=row, column=0, columnspan=3, sticky="ew")
+        self._fp_frame.columnconfigure(1, weight=1)
+        ttk.Label(self._fp_frame, text="Fabric project:").grid(row=0, column=0, sticky="w", **PAD)
         self._fabric_project_dir = tk.StringVar()
-        fp_frame = ttk.Frame(main)
-        fp_frame.grid(row=row, column=1, columnspan=2, sticky="ew", **PAD)
-        ttk.Entry(fp_frame, textvariable=self._fabric_project_dir, width=34,
+        fp_inner = ttk.Frame(self._fp_frame)
+        fp_inner.grid(row=0, column=1, columnspan=2, sticky="ew", **PAD)
+        ttk.Entry(fp_inner, textvariable=self._fabric_project_dir, width=34,
                   state="readonly").pack(side="left", fill="x", expand=True)
-        ttk.Button(fp_frame, text="Browse", command=self._browse_fabric_project).pack(side="left", padx=4)
-        ttk.Button(fp_frame, text="Clear", command=lambda: self._fabric_project_dir.set("")).pack(side="left", padx=2)
-        row += 1
-        self._fabric_status = ttk.Label(main, text="Optional — auto-detects Fabric items and writes CLAUDE.md to project root.",
+        ttk.Button(fp_inner, text="Browse", command=self._browse_fabric_project).pack(side="left", padx=4)
+        ttk.Button(fp_inner, text="Clear", command=lambda: self._fabric_project_dir.set("")).pack(side="left", padx=2)
+        self._fabric_status = ttk.Label(self._fp_frame, text="Optional — auto-detects Fabric items and writes CLAUDE.md to project root.",
                   foreground="#6c7086")
-        self._fabric_status.grid(row=row, column=1, columnspan=2, sticky="w", padx=12)
+        self._fabric_status.grid(row=1, column=1, columnspan=2, sticky="w", padx=12)
         row += 1
 
         ttk.Separator(main, orient="horizontal").grid(row=row, column=0, columnspan=3, sticky="ew", pady=4)
@@ -787,7 +817,7 @@ class InstallerApp(tk.Tk):
             if marker_start in existing:
                 # Replace only the Fabric section, preserve everything else
                 import re
-                pattern = re.escape(marker_start) + r".*?" + re.escape(marker_end) + r"\r?\n?"
+                pattern = re.escape(marker_start) + r".*?" + re.escape(marker_end)
                 updated = re.sub(
                     pattern,
                     content.rstrip("\n"),
@@ -831,6 +861,20 @@ class InstallerApp(tk.Tk):
         if f:
             self._notebook_template.set(f)
 
+    def _browse_glossary(self):
+        files = filedialog.askopenfilenames(
+            title="Select glossary files",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        if files:
+            self._glossary_files = list(files)
+            names = [Path(f).name for f in files]
+            self._glossary_display.set(", ".join(names))
+
+    def _clear_glossary(self):
+        self._glossary_files = []
+        self._glossary_display.set("")
+
     def _toggle_azure_sql_fields(self):
         if self._server_vars["azure_sql"].get():
             self._az_frame.grid()
@@ -840,7 +884,26 @@ class InstallerApp(tk.Tk):
 
     def _on_server_toggle(self):
         self._toggle_azure_sql_fields()
+        self._toggle_optional_sections()
         self._update_install_btn()
+
+    def _toggle_optional_sections(self):
+        """Show/hide notebook, glossary, and fabric project based on selected servers."""
+        fabric = self._server_vars["fabric"].get()
+        translation = self._server_vars.get("translation", tk.BooleanVar()).get()
+        powerbi = self._server_vars.get("powerbi", tk.BooleanVar()).get()
+
+        if fabric:
+            self._nb_frame.grid()
+            self._fp_frame.grid()
+        else:
+            self._nb_frame.grid_remove()
+            self._fp_frame.grid_remove()
+
+        if translation or powerbi:
+            self._gl_frame.grid()
+        else:
+            self._gl_frame.grid_remove()
 
     def _toggle_sql_creds(self):
         if self._az_auth.get() == "sql":
@@ -957,7 +1020,7 @@ class InstallerApp(tk.Tk):
             install_dir.mkdir(parents=True, exist_ok=True)
 
             selected_servers = [k for k, v in self._server_vars.items() if v.get()]
-            total_steps = 1 + len(selected_servers) + 3  # clone + uv sync each + config + agents + notebook
+            total_steps = 1 + len(selected_servers) + 5  # clone + uv sync each + config + agents + notebook + glossary + fabric CLAUDE.md
             step = 0
 
             def progress(n: int, total: int, msg: str):
@@ -1012,7 +1075,15 @@ class InstallerApp(tk.Tk):
                 self._install_notebook_template(Path(nb_path))
             step += 1
 
-            # Step 6: Fabric project CLAUDE.md (optional)
+            # Step 6: glossary files (optional)
+            if self._glossary_files:
+                glossary_paths = [Path(f) for f in self._glossary_files if Path(f).exists()]
+                if glossary_paths:
+                    progress(step, total_steps, "Installing glossary files...")
+                    self._install_glossary(glossary_paths)
+            step += 1
+
+            # Step 7: Fabric project CLAUDE.md (optional)
             fp_dir = self._fabric_project_dir.get().strip()
             if fp_dir and Path(fp_dir).exists():
                 progress(step, total_steps, "Writing Fabric project CLAUDE.md...")
@@ -1142,7 +1213,9 @@ class InstallerApp(tk.Tk):
 
     @staticmethod
     def _is_claude_desktop_running() -> bool:
-        """Check if Claude Desktop process is running."""
+        """Check if Claude Desktop process is running (Windows only)."""
+        if platform.system() != "Windows":
+            return False
         try:
             out = subprocess.check_output(
                 ["tasklist", "/FI", "IMAGENAME eq Claude.exe", "/NH"],
@@ -1218,6 +1291,32 @@ class InstallerApp(tk.Tk):
             for md in agents_src.glob("*.md"):
                 shutil.copy2(md, agents_dest / md.name)
                 self.after(0, lambda n=md.name: self._log_append(f"  Copied agent: {n}"))
+
+    def _install_glossary(self, files: list[Path]):
+        """Copy glossary files and inject a reference into ~/.claude/CLAUDE.md."""
+        dest_dir = Path.home() / ".claude" / "glossary"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for src in files:
+            dest = dest_dir / src.name
+            shutil.copy2(src, dest)
+            self.after(0, lambda n=src.name: self._log_append(f"  Copied glossary: {n}"))
+
+        # Inject into CLAUDE.md (create if missing, skip if already present)
+        claude_md = Path.home() / ".claude" / "CLAUDE.md"
+        marker = "## Translation Glossary"
+        entry = (
+            f"\n{marker}\n"
+            f"When translating Power BI reports, check `~/.claude/glossary/` for company-specific term dictionaries.\n"
+            f"If glossary files exist, use them as the authoritative source for terminology.\n"
+            f"If no glossary files exist, use your best judgment for translations.\n"
+        )
+        existing_text = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
+        if marker not in existing_text:
+            with open(claude_md, "a", encoding="utf-8") as f:
+                f.write(entry)
+            self.after(0, lambda: self._log_append("  Added glossary reference to ~/.claude/CLAUDE.md"))
+        else:
+            self.after(0, lambda: self._log_append("  Glossary reference already in ~/.claude/CLAUDE.md"))
 
     def _install_notebook_template(self, src: Path):
         """Copy notebook template and inject a reference into ~/.claude/CLAUDE.md."""
