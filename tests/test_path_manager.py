@@ -22,8 +22,9 @@ from mcp_installer.path_manager import (
 
 
 class TestFindExecutable:
-    def test_finds_uv_on_path(self):
-        """uv should be found since it's installed in this environment."""
+    @patch("mcp_installer.path_manager.shutil.which", return_value="/usr/local/bin/uv")
+    def test_finds_uv_on_path(self, mock_which):
+        """find_executable returns the path when shutil.which finds the tool."""
         result = find_executable("uv")
         assert result is not None
         assert "uv" in result.lower()
