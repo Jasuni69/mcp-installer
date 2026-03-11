@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(cd:*)",
+      "Bash(tail:*)",
+      "Bash(cd /e/2026/mcp-installer && pyinstaller build.spec 2>&1)",
+      "Bash(python:*)",
+      "Bash(winget install:*)",
+      "Bash(\"/c/Program Files/GitHub CLI/gh.exe\" auth:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\":*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "WebSearch",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:gofastmcp.com)",
+      "WebFetch(domain:www.jlowin.dev)",
+      "Bash(\"C:\\\\Users\\\\JasonNicolini\\\\.dotnet\\\\dotnet.EXE\":*)",
+      "Bash(find:*)",
+      "Bash(echo not found:*)",
+      "Bash(echo:*)",
+      "Bash(export:*)",
+      "Bash(/c/Users/JasonNicolini/scoop/shims/gh.exe:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(git:*)",
+      "Bash(python3:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

@@ -1,7 +1,6 @@
-# PyInstaller spec for MCP Server Installer
+# PyInstaller spec for MCP Server Installer v2
 # Build: pyinstaller build.spec
 # Output: dist/MCPInstaller.exe
-# No Python required on end-user machines — Python is bundled inside the exe.
 
 import os
 
@@ -11,10 +10,25 @@ icon_path = 'assets/icon.ico' if os.path.exists('assets/icon.ico') else None
 
 a = Analysis(
     ['installer.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
-    datas=[('assets/icon.ico', 'assets'), ('assets/icon.png', 'assets')],
+    datas=[
+        ('assets/icon.ico', 'assets'),
+        ('assets/icon.png', 'assets'),
+        # Bundle agents, skills, templates so no git needed at runtime
+        ('agents', 'agents'),
+        ('skills', 'skills'),
+        ('templates', 'templates'),
+    ],
     hiddenimports=[
+        'mcp_installer',
+        'mcp_installer.app',
+        'mcp_installer.constants',
+        'mcp_installer.path_manager',
+        'mcp_installer.prereqs',
+        'mcp_installer.downloader',
+        'mcp_installer.config_writer',
+        'mcp_installer.updater',
         'requests',
         'packaging',
         'packaging.version',

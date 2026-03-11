@@ -1,0 +1,127 @@
+# GitHub Actions: Build and publish release assets
+# Triggers on tag push (e.g., v2.0.0)
+#
+# Creates:
+#   - MCPInstaller.exe (PyInstaller one-file build)
+#   - fabric-core.zip, powerbi-modeling.zip, translation-audit.zip, azure-sql.zip
+#   - extras.zip (agents/, skills/, templates/)
+#   - manifest.json (versions + SHA256 checksums for each asset)
+
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyinstaller requests packaging
+
+      - name: Run tests
+        run: |
+          pip install pytest
+          python -m pytest tests/ -v
+
+      - name: Build exe
+        run: pyinstaller build.spec
+
+      - name: Create server ZIPs
+        shell: pwsh
+        run: |
+          $servers = @("fabric-core", "powerbi-modeling", "translation-audit", "azure-sql")
+          foreach ($srv in $servers) {
+            if (Test-Path $srv) {
+              # Exclude .venv, __pycache__, .git from the ZIP
+              $items = Get-ChildItem -Path $srv -Exclude ".venv","__pycache__",".git"
+              Compress-Archive -Path $items.FullName -DestinationPath "$srv.zip" -Force
+              Write-Host "Created $srv.zip"
+            } else {
+              Write-Host "WARN: $srv directory not found, skipping"
+            }
+          }
+
+      - name: Create extras ZIP
+        shell: pwsh
+        run: |
+          $dirs = @()
+          if (Test-Path "agents")   { $dirs += "agents" }
+          if (Test-Path "skills")   { $dirs += "skills" }
+          if (Test-Path "templates") { $dirs += "templates" }
+          if ($dirs.Count -gt 0) {
+            Compress-Archive -Path $dirs -DestinationPath "extras.zip" -Force
+            Write-Host "Created extras.zip"
+          }
+
+      - name: Generate manifest.json
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $owner = "${{ github.repository_owner }}"
+          $repo = "${{ github.event.repository.name }}"
+
+          $manifest = @{
+            installer_version = $tag
+            servers = @{}
+          }
+
+          $servers = @{
+            "fabric-core"       = @{ version = $tag }
+            "powerbi-modeling"  = @{ version = $tag }
+            "translation-audit" = @{ version = $tag }
+            "azure-sql"         = @{ version = $tag }
+          }
+
+          foreach ($name in $servers.Keys) {
+            $zipFile = "$name.zip"
+            if (Test-Path $zipFile) {
+              $sha = (Get-FileHash -Path $zipFile -Algorithm SHA256).Hash.ToLower()
+              $url = "https://github.com/$owner/$repo/releases/download/v$tag/$zipFile"
+              $manifest.servers[$name] = @{
+                version    = $servers[$name].version
+                asset_name = $zipFile
+                sha256     = $sha
+                url        = $url
+              }
+            }
+          }
+
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content "manifest.json" -Encoding utf8
+          Write-Host "Generated manifest.json"
+          Get-Content "manifest.json"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/MCPInstaller.exe
+            fabric-core.zip
+            powerbi-modeling.zip
+            translation-audit.zip
+            azure-sql.zip
+            extras.zip
+            manifest.json
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests packaging pytest
+      - run: python -m pytest tests/ -v
